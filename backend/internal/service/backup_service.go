@@ -93,15 +93,18 @@ type BackupObjectStoreFactory func(ctx context.Context, cfg *BackupS3Config) (Ba
 
 // ─── 数据模型 ───
 
-// BackupS3Config S3 兼容存储配置（支持 Cloudflare R2）
+// BackupS3Config S3 兼容存储配置（Cloudflare R2 / 阿里云 OSS / 腾讯云 COS / 七牛）。
+// Provider 为空时按 s3 处理。Resolved 只出现在接口响应里，禁止写入 settings JSON。
 type BackupS3Config struct {
-	Endpoint        string `json:"endpoint"` // e.g. https://<account_id>.r2.cloudflarestorage.com
-	Region          string `json:"region"`   // R2 用 "auto"
-	Bucket          string `json:"bucket"`
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
-	Prefix          string `json:"prefix"`                      // S3 key 前缀，如 "backups/"
-	ForcePathStyle  bool   `json:"force_path_style"`
+	Provider        string                   `json:"provider,omitempty"` // s3, aliyun_oss, tencent_cos, qiniu
+	Endpoint        string                   `json:"endpoint"`           // 用户覆盖地址；留空则按厂商和区域推导
+	Region          string                   `json:"region"`             // R2 用 "auto"
+	Bucket          string                   `json:"bucket"`
+	AccessKeyID     string                   `json:"access_key_id"`
+	SecretAccessKey string                   `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
+	Prefix          string                   `json:"prefix"`                      // S3 key 前缀，如 "backups/"
+	ForcePathStyle  bool                     `json:"force_path_style"`
+	Resolved        *StorageResolvedEndpoint `json:"resolved,omitempty"`
 }
 
 // IsConfigured 检查必要字段是否已配置
@@ -384,14 +387,27 @@ func (s *BackupService) GetS3Config(ctx context.Context) (*BackupS3Config, error
 		return nil, err
 	}
 	if cfg == nil {
-		return &BackupS3Config{}, nil
+		cfg = &BackupS3Config{}
 	}
-	// 脱敏返回
-	cfg.SecretAccessKey = ""
-	return cfg, nil
+	return presentS3Config(cfg)
 }
 
 func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) (*BackupS3Config, error) {
+	cfg.Provider = strings.TrimSpace(cfg.Provider)
+	cfg.Region = strings.TrimSpace(cfg.Region)
+	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
+	cfg.Bucket = strings.TrimSpace(cfg.Bucket)
+	cfg.Resolved = nil
+
+	provider, err := canonicalStorageProvider(cfg.Provider)
+	if err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+	cfg.Provider = provider
+	if _, _, _, err := ResolveStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle); err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+
 	// 如果没提供 secret，保留原有值。loadS3Config 会解密，所以这里拿到的是明文，
 	// 和调用方新填的 secret 一样，都必须走下面的加密再落库。
 	if cfg.SecretAccessKey == "" {
@@ -418,6 +434,7 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 		cfg.SecretAccessKey = encrypted
 	}
 
+	cfg.Resolved = nil
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal s3 config: %w", err)
@@ -432,11 +449,30 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 	s.s3Cfg = nil
 	s.storeMu.Unlock()
 
-	cfg.SecretAccessKey = ""
-	return &cfg, nil
+	return presentS3Config(&cfg)
 }
 
-func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config) error {
+func presentS3Config(cfg *BackupS3Config) (*BackupS3Config, error) {
+	if cfg == nil {
+		cfg = &BackupS3Config{}
+	}
+	out := *cfg
+	out.SecretAccessKey = ""
+	out.Resolved = nil
+	provider, err := canonicalStorageProvider(out.Provider)
+	if err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+	out.Provider = provider
+	resolved, err := resolvedStorageEndpoint(provider, out.Region, out.Bucket, out.Endpoint, out.ForcePathStyle)
+	if err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+	out.Resolved = &resolved
+	return &out, nil
+}
+
+func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config) (*StorageResolvedEndpoint, error) {
 	// 如果没提供 secret，用已保存的
 	if cfg.SecretAccessKey == "" {
 		old, _ := s.loadS3Config(ctx)
@@ -445,15 +481,26 @@ func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config
 		}
 	}
 
+	resolved, resolveErr := resolvedStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle)
 	if cfg.Bucket == "" || cfg.AccessKeyID == "" || cfg.SecretAccessKey == "" {
-		return fmt.Errorf("incomplete S3 config: bucket, access_key_id, secret_access_key are required")
+		// 凭证不全时保留原错误。端点能解析时仍带回 resolved，且绝不回传密钥。
+		if resolveErr != nil {
+			return nil, fmt.Errorf("incomplete S3 config: bucket, access_key_id, secret_access_key are required")
+		}
+		return &resolved, fmt.Errorf("incomplete S3 config: bucket, access_key_id, secret_access_key are required")
+	}
+	if resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	store, err := s.storeFactory(ctx, &cfg)
 	if err != nil {
-		return err
+		return &resolved, err
 	}
-	return store.HeadBucket(ctx)
+	if err := store.HeadBucket(ctx); err != nil {
+		return &resolved, err
+	}
+	return &resolved, nil
 }
 
 // ─── 定时备份管理 ───

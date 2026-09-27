@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -24,17 +25,15 @@ type S3BackupStore struct {
 // NewS3BackupStoreFactory returns a BackupObjectStoreFactory that creates S3-backed stores
 func NewS3BackupStoreFactory() service.BackupObjectStoreFactory {
 	return func(ctx context.Context, cfg *service.BackupS3Config) (service.BackupObjectStore, error) {
-		client, err := newS3Client(ctx, s3ClientParams{
-			Endpoint:        cfg.Endpoint,
-			Region:          cfg.Region,
-			AccessKeyID:     cfg.AccessKeyID,
-			SecretAccessKey: cfg.SecretAccessKey,
-			ForcePathStyle:  cfg.ForcePathStyle,
-		})
+		params, err := resolvedClientParams(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.AccessKeyID, cfg.SecretAccessKey, cfg.ForcePathStyle)
 		if err != nil {
 			return nil, err
 		}
-		return &S3BackupStore{client: client, bucket: cfg.Bucket}, nil
+		client, err := newS3Client(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return &S3BackupStore{client: client, bucket: strings.TrimSpace(cfg.Bucket)}, nil
 	}
 }
 

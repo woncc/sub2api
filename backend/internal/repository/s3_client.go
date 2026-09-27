@@ -9,6 +9,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 // s3ClientParams 描述构造 S3 兼容客户端所需的参数。
@@ -18,6 +20,21 @@ type s3ClientParams struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	ForcePathStyle  bool
+}
+
+// resolvedClientParams applies provider endpoint rules before the shared S3 client is built.
+func resolvedClientParams(provider, region, bucket, endpoint, accessKeyID, secretAccessKey string, forcePathStyle bool) (s3ClientParams, error) {
+	resolvedEndpoint, signingRegion, resolvedForcePathStyle, err := service.ResolveStorageEndpoint(provider, region, bucket, endpoint, forcePathStyle)
+	if err != nil {
+		return s3ClientParams{}, err
+	}
+	return s3ClientParams{
+		Endpoint:        resolvedEndpoint,
+		Region:          signingRegion,
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+		ForcePathStyle:  resolvedForcePathStyle,
+	}, nil
 }
 
 // newS3Client 构造一个 S3 兼容客户端，兼容 AWS S3 / Cloudflare R2 / 阿里云 OSS / MinIO。
