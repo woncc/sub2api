@@ -1237,6 +1237,9 @@ update:
 # service.ImageStorage 接口（Save(ctx, key, contentType, data) -> url）即可。
 image_storage:
   enabled: false
+  # 厂商：s3（Cloudflare R2 / S3 兼容）、aliyun_oss、tencent_cos、qiniu。留空等同 s3。
+  # endpoint 留空时，非 s3 按 region 生成外网 S3 地址；已填写的 endpoint 原样使用。
+  provider: ""
   # S3 兼容端点。AWS 官方可留空；R2 形如 https://<account_id>.r2.cloudflarestorage.com
   endpoint: ""
   # 区域。Cloudflare R2 用 "auto"
