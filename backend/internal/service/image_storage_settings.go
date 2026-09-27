@@ -227,7 +227,8 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 
 // TestConnection 用给定设置试建一次客户端，用于后台的"测试连接"按钮。
 // 与 Update 一样支持留空 SecretAccessKey 表示沿用已保存的值。
-func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) error {
+// 返回的 resolved 只含端点、签名区域和 path-style，不含密钥。
+func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) (*StorageResolvedEndpoint, error) {
 	normalizeImageStorageSettings(&in)
 	if !in.ReuseBackupS3 && in.SecretAccessKey == "" {
 		old, err := s.load(ctx)
@@ -237,23 +238,30 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	}
 	cfg, err := s.toImageStorageConfig(ctx, &in)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	resolved, resolveErr := resolvedStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle)
 	if !cfg.IsConfigured() {
-		return ErrImageStorageIncomplete
+		if resolveErr != nil {
+			return nil, ErrImageStorageIncomplete
+		}
+		return &resolved, ErrImageStorageIncomplete
 	}
-	if _, _, _, err := ResolveStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle); err != nil {
-		return err
+	if resolveErr != nil {
+		return nil, resolveErr
 	}
 	storage, err := s.factory(ctx, cfg)
 	if err != nil {
-		return err
+		return &resolved, err
 	}
 	head, ok := storage.(imageStorageBucketHead)
 	if !ok {
-		return errors.New("image storage connection test requires HeadBucket")
+		return &resolved, errors.New("image storage connection test requires HeadBucket")
 	}
-	return head.HeadBucket(ctx)
+	if err := head.HeadBucket(ctx); err != nil {
+		return &resolved, err
+	}
+	return &resolved, nil
 }
 
 // effectiveConfig 把后台设置（或 config.yaml 回落）解析成运行时配置。

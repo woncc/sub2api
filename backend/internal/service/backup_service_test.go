@@ -1078,23 +1078,33 @@ func TestBackupService_TestS3Connection(t *testing.T) {
 	store := newMockObjectStore()
 	svc := newTestBackupService(repo, &mockDumper{}, store)
 
-	err := svc.TestS3Connection(context.Background(), BackupS3Config{
+	resolved, err := svc.TestS3Connection(context.Background(), BackupS3Config{
 		Bucket:          "test",
 		AccessKeyID:     "ak",
 		SecretAccessKey: "sk",
 	})
 	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	require.Empty(t, resolved.Endpoint)
+	require.Empty(t, resolved.Region)
+	require.False(t, resolved.ForcePathStyle)
 }
 
 func TestBackupService_TestS3Connection_Incomplete(t *testing.T) {
 	repo := newMockSettingRepo()
 	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
 
-	err := svc.TestS3Connection(context.Background(), BackupS3Config{
-		Bucket: "test",
+	resolved, err := svc.TestS3Connection(context.Background(), BackupS3Config{
+		Bucket:          "test",
+		SecretAccessKey: "must-not-leak",
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "incomplete")
+	require.NotNil(t, resolved)
+	raw, marshalErr := json.Marshal(resolved)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(raw), "must-not-leak")
+	require.NotContains(t, string(raw), "secret")
 }
 
 func TestBackupService_Schedule_CronValidation(t *testing.T) {
@@ -1454,7 +1464,7 @@ func TestBackupService_TestS3ConnectionKeepsSecretAndResolves(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = svc.TestS3Connection(ctx, BackupS3Config{
+	resolved, err := svc.TestS3Connection(ctx, BackupS3Config{
 		Provider:    StorageProviderQiniu,
 		Region:      "cn-east-1",
 		Bucket:      "space",
@@ -1464,23 +1474,31 @@ func TestBackupService_TestS3ConnectionKeepsSecretAndResolves(t *testing.T) {
 	require.Equal(t, "stored-secret", seen.SecretAccessKey)
 	require.Empty(t, seen.Endpoint, "test must not persist the derived endpoint onto the config passed through")
 	require.Equal(t, 1, store.headCalls)
+	require.Equal(t, "https://s3.cn-east-1.qiniucs.com", resolved.Endpoint)
+	require.Equal(t, "cn-east-1", resolved.Region)
+	require.False(t, resolved.ForcePathStyle)
+	raw, marshalErr := json.Marshal(resolved)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(raw), "stored-secret")
 
 	store.headCalls = 0
-	err = svc.TestS3Connection(ctx, BackupS3Config{
+	resolved, err = svc.TestS3Connection(ctx, BackupS3Config{
 		Provider:        StorageProviderAliyunOSS,
 		Bucket:          "example",
 		AccessKeyID:     "ak",
 		SecretAccessKey: "sk",
 	})
 	require.ErrorContains(t, err, "region is required")
+	require.Nil(t, resolved)
 	require.Zero(t, store.headCalls)
 
-	err = svc.TestS3Connection(ctx, BackupS3Config{
+	resolved, err = svc.TestS3Connection(ctx, BackupS3Config{
 		Provider:        "nope",
 		Bucket:          "example",
 		AccessKeyID:     "ak",
 		SecretAccessKey: "sk",
 	})
 	require.ErrorContains(t, err, "unknown storage provider")
+	require.Nil(t, resolved)
 	require.Zero(t, store.headCalls)
 }

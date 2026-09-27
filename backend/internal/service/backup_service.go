@@ -472,7 +472,7 @@ func presentS3Config(cfg *BackupS3Config) (*BackupS3Config, error) {
 	return &out, nil
 }
 
-func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config) error {
+func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config) (*StorageResolvedEndpoint, error) {
 	// 如果没提供 secret，用已保存的
 	if cfg.SecretAccessKey == "" {
 		old, _ := s.loadS3Config(ctx)
@@ -481,18 +481,26 @@ func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config
 		}
 	}
 
+	resolved, resolveErr := resolvedStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle)
 	if cfg.Bucket == "" || cfg.AccessKeyID == "" || cfg.SecretAccessKey == "" {
-		return fmt.Errorf("incomplete S3 config: bucket, access_key_id, secret_access_key are required")
+		// 凭证不全时保留原错误。端点能解析时仍带回 resolved，且绝不回传密钥。
+		if resolveErr != nil {
+			return nil, fmt.Errorf("incomplete S3 config: bucket, access_key_id, secret_access_key are required")
+		}
+		return &resolved, fmt.Errorf("incomplete S3 config: bucket, access_key_id, secret_access_key are required")
 	}
-	if _, _, _, err := ResolveStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle); err != nil {
-		return err
+	if resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	store, err := s.storeFactory(ctx, &cfg)
 	if err != nil {
-		return err
+		return &resolved, err
 	}
-	return store.HeadBucket(ctx)
+	if err := store.HeadBucket(ctx); err != nil {
+		return &resolved, err
+	}
+	return &resolved, nil
 }
 
 // ─── 定时备份管理 ───

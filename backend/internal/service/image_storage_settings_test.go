@@ -374,7 +374,7 @@ func TestImageStorageTestConnectionHeadBucketKeepsSecret(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = svc.TestConnection(ctx, ImageStorageSettings{
+	resolved, err := svc.TestConnection(ctx, ImageStorageSettings{
 		Enabled: true, Provider: StorageProviderQiniu, Region: "cn-north-1",
 		Bucket: "space", AccessKeyID: "ak",
 	})
@@ -383,15 +383,41 @@ func TestImageStorageTestConnectionHeadBucketKeepsSecret(t *testing.T) {
 	require.Zero(t, store.saves)
 	require.Equal(t, "kept-secret", built[len(built)-1].SecretAccessKey)
 	require.Empty(t, built[len(built)-1].Endpoint)
+	require.Equal(t, "https://s3.cn-north-1.qiniucs.com", resolved.Endpoint)
+	require.Equal(t, "cn-north-1", resolved.Region)
+	require.False(t, resolved.ForcePathStyle)
+	raw, marshalErr := json.Marshal(resolved)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(raw), "kept-secret")
 
-	err = svc.TestConnection(ctx, ImageStorageSettings{
+	resolved, err = svc.TestConnection(ctx, ImageStorageSettings{
 		Enabled: true, Provider: StorageProviderTencentCOS, Region: "ap-guangzhou",
 		Bucket: "not-an-appid", AccessKeyID: "ak", SecretAccessKey: "kept-secret",
 	})
 	require.ErrorContains(t, err, "bucket must look like {name}-{appid}")
+	require.Nil(t, resolved)
 	require.Equal(t, 1, store.heads)
 
-	err = svc.TestConnection(ctx, ImageStorageSettings{Enabled: true, Bucket: "only-bucket"})
+	resolved, err = svc.TestConnection(ctx, ImageStorageSettings{Enabled: true, Bucket: "only-bucket"})
 	require.ErrorIs(t, err, ErrImageStorageIncomplete)
+	require.NotNil(t, resolved)
+	require.Empty(t, resolved.Endpoint)
+	require.Equal(t, "auto", resolved.Region)
 	require.Equal(t, 1, store.heads)
+	raw, marshalErr = json.Marshal(resolved)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(raw), "kept-secret")
+
+	seedBackupS3(t, repo, BackupS3Config{
+		Provider: StorageProviderAliyunOSS, Region: "oss-cn-hangzhou",
+		Bucket: "backup-bucket", AccessKeyID: "backup-ak", SecretAccessKey: "backup-sk",
+	})
+	resolved, err = svc.TestConnection(ctx, ImageStorageSettings{Enabled: true, ReuseBackupS3: true})
+	require.NoError(t, err)
+	require.Equal(t, "https://s3.oss-cn-hangzhou.aliyuncs.com", resolved.Endpoint)
+	require.Equal(t, "cn-hangzhou", resolved.Region)
+	require.False(t, resolved.ForcePathStyle)
+	raw, marshalErr = json.Marshal(resolved)
+	require.NoError(t, marshalErr)
+	require.NotContains(t, string(raw), "backup-sk")
 }
