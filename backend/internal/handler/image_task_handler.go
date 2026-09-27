@@ -23,6 +23,7 @@ import (
 type AsyncImageHandler struct {
 	tasks   *service.ImageTaskService
 	openAI  *OpenAIGatewayHandler
+	userOSS *service.UserOSSService
 	execute func(platform string, c *gin.Context)
 }
 
@@ -30,6 +31,15 @@ func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGateway
 	h := &AsyncImageHandler{tasks: tasks, openAI: openAI}
 	h.execute = h.executeWithGateway
 	return h
+}
+
+func (h *AsyncImageHandler) SetUserOSS(oss *service.UserOSSService) {
+	if h != nil {
+		h.userOSS = oss
+		if h.tasks != nil {
+			h.tasks.SetUserOSS(oss)
+		}
+	}
 }
 
 // enabled reports whether the async image task feature is available. Object
@@ -49,13 +59,34 @@ func (h *AsyncImageHandler) pollable() bool {
 // Submit accepts the same payload as the synchronous Images endpoint and
 // returns before the upstream image generation begins.
 func (h *AsyncImageHandler) Submit(c *gin.Context) {
-	if !h.enabled() {
-		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "async image tasks are not enabled")
-		return
-	}
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil || apiKey.UserID <= 0 || apiKey.ID <= 0 {
 		imageTaskError(c, service.ErrImageTaskForbidden)
+		return
+	}
+	var userOSS *service.UserOSSRequest
+	ownerID := apiKey.UserID
+	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+		ownerID = subject.UserID
+	}
+	if strings.TrimSpace(c.GetHeader("oss-id")) != "" {
+		if h == nil || h.userOSS == nil {
+			imageTaskJSONError(c, http.StatusServiceUnavailable, "api_error", "object storage is unavailable")
+			return
+		}
+		spec, err := h.userOSS.SpecFromHeaders(c.Request.Context(), ownerID, c.GetHeader("oss-id"), c.GetHeader("oss-path"))
+		if err != nil {
+			imageTaskError(c, err)
+			return
+		}
+		userOSS = spec
+	}
+	if userOSS == nil && !h.enabled() {
+		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "async image tasks are not enabled")
+		return
+	}
+	if h == nil || h.tasks == nil || !h.tasks.Pollable() {
+		imageTaskError(c, service.ErrImageTaskUnavailable)
 		return
 	}
 	platform := ""
@@ -101,6 +132,12 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 
 	taskCtx, recorder, cancel := newAsyncImageContext(c, body, h.tasks.ExecutionTimeout())
+	if userOSS != nil {
+		deferred := *userOSS
+		deferred.Defer = true
+		service.AttachUserOSS(taskCtx, deferred)
+		service.AttachOSSOwner(taskCtx, ownerID, apiKey.ID)
+	}
 	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
 	if err != nil {
 		cancel()
@@ -122,7 +159,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		"poll_url":   pollURL,
 	})
 
-	go h.run(task.ID, platform, taskCtx, recorder, cancel)
+	go h.run(task.ID, platform, taskCtx, recorder, cancel, userOSS)
 }
 
 func (h *AsyncImageHandler) checkSecurityAuditBeforeSubmit(c *gin.Context, apiKey *service.APIKey, platform string, body []byte) bool {
@@ -220,7 +257,7 @@ func (h *AsyncImageHandler) executeWithGateway(platform string, c *gin.Context) 
 	h.openAI.Images(c)
 }
 
-func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, recorder *httptest.ResponseRecorder, cancel context.CancelFunc) {
+func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, recorder *httptest.ResponseRecorder, cancel context.CancelFunc, userOSS *service.UserOSSRequest) {
 	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -244,7 +281,13 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 			h.failTask(taskID, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
 			return
 		}
-		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body)); err != nil {
+		var err error
+		if userOSS != nil {
+			err = h.tasks.CompleteWithUserOSS(context.Background(), taskID, statusCode, json.RawMessage(body), *userOSS)
+		} else {
+			err = h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body))
+		}
+		if err != nil {
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
 		return

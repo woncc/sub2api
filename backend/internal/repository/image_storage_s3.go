@@ -30,6 +30,9 @@ func NewS3ImageStorage(ctx context.Context, cfg *config.ImageStorageConfig) (*S3
 	if err != nil {
 		return nil, err
 	}
+	if cfg.RejectPrivateNetwork {
+		params.HTTPClient = service.NewUserOSSHTTPClient()
+	}
 	client, err := newS3Client(ctx, params)
 	if err != nil {
 		return nil, err

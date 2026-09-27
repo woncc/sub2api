@@ -386,6 +386,10 @@ type GrokVideoPendingBilling struct {
 	// first official done+video.url observation (status poll or content download),
 	// not the latency of that single discovery request alone.
 	CreatedAt string `json:"created_at,omitempty"`
+	// OSSRepositoryID is set when the create request carried oss-id.
+	// Status polling uploads video.url into that user's store.
+	OSSRepositoryID int64  `json:"oss_repository_id,omitempty"`
+	OSSPath         string `json:"oss_path,omitempty"`
 }
 
 // GrokVideoPendingCreatedAtNow formats a create-accept timestamp for pending billing.
@@ -747,6 +751,11 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		return nil, err
 	}
 	if endpoint == GrokMediaEndpointImagesGenerations || endpoint == GrokMediaEndpointImagesEdits {
+		rewritten, rewriteErr := s.rewriteUserOSSImage(c, requestIDHeader, respBody)
+		if rewriteErr != nil {
+			return nil, rewriteErr
+		}
+		respBody = rewritten
 		if countOpenAIResponseImageOutputsFromJSONBytes(respBody) <= 0 {
 			setOpsUpstreamError(c, http.StatusBadGateway, "xAI upstream returned no image output", truncateString(string(respBody), 512))
 			return nil, &UpstreamFailoverError{
@@ -757,11 +766,23 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		}
 	}
 	if endpoint == GrokMediaEndpointVideoStatus {
-		respBody = rewriteGrokMediaVideoContentURLs(
-			respBody,
-			requestID,
-			grokMediaContentProxyURL(c, requestID),
-		)
+		rewritten, applied, rewriteErr := s.rewriteUserOSSVideo(c, requestID, respBody)
+		if rewriteErr != nil {
+			return nil, rewriteErr
+		}
+		respBody = rewritten
+		if !applied {
+			respBody = rewriteGrokMediaVideoContentURLs(
+				respBody,
+				requestID,
+				grokMediaContentProxyURL(c, requestID),
+			)
+		}
+	}
+	if isUserOSSVideoCreate(endpoint) {
+		if err := s.persistUserOSSBinding(c, extractGrokMediaVideoRequestID(respBody)); err != nil {
+			return nil, err
+		}
 	}
 	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
 	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)

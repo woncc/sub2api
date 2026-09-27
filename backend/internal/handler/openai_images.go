@@ -143,6 +143,16 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 
+	service.AttachOSSOwner(c, subject.UserID, apiKey.ID)
+	if err := h.bindGatewayUserOSS(c, subject.UserID, false); err != nil {
+		h.rejectUserOSS(c, err)
+		return
+	}
+	if spec, ok := service.UserOSSRequestFromContext(c.Request.Context()); ok && !spec.Defer && parsed.Stream {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "oss-id cannot be used with streaming image responses")
+		return
+	}
+
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
 

@@ -216,6 +216,30 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/oss',
+    name: 'UserOSS',
+    component: () => import('@/views/user/OssView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Object storage',
+      titleKey: 'oss.title',
+      descriptionKey: 'oss.description'
+    }
+  },
+  {
+    path: '/docs/oss',
+    name: 'UserOSSDocs',
+    component: () => import('@/views/user/OssDocsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Object storage headers',
+      titleKey: 'oss.docs.title',
+      descriptionKey: 'oss.docs.description'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
