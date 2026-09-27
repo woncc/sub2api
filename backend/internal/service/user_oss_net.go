@@ -115,6 +115,15 @@ func rejectUserOSSIP(ip net.IP) error {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
 		return errors.New("resolved address is not allowed")
 	}
+	// Classification above covers RFC1918, loopback, and link-local. The
+	// channel-monitor list also blocks CGNAT (100.64.0.0/10, including Aliyun
+	// metadata 100.100.100.200) and 0.0.0.0/8. One blocked answer still fails
+	// the whole lookup in dialUserOSSPublic.
+	for _, network := range monitorBlockedCIDRs {
+		if network.Contains(ip) {
+			return errors.New("resolved address is not allowed")
+		}
+	}
 	return nil
 }
 
@@ -174,6 +183,8 @@ func (t userOSSRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 // NewUserOSSHTTPClient is the outbound client for a user's bucket and for
 // downloading an upstream artifact before that upload. It refuses cleartext,
 // metadata hosts, and private or link-local addresses, including after DNS.
+// It dials the target directly: an environment proxy would be the dial
+// destination, so the target's resolved addresses would never be checked.
 func NewUserOSSHTTPClient() *http.Client {
 	base, _ := http.DefaultTransport.(*http.Transport)
 	var transport *http.Transport
@@ -182,6 +193,10 @@ func NewUserOSSHTTPClient() *http.Client {
 	} else {
 		transport = &http.Transport{}
 	}
+	// DefaultTransport.Proxy is ProxyFromEnvironment. Leave it unset, matching
+	// newSSRFSafeHTTPClient, so HeadBucket, PutObject, and artifact downloads
+	// cannot skip dialUserOSSPublic by connecting to HTTP_PROXY/HTTPS_PROXY.
+	transport.Proxy = nil
 	transport.DialContext = dialUserOSSPublic
 	transport.TLSHandshakeTimeout = 10 * time.Second
 	transport.ResponseHeaderTimeout = 60 * time.Second
