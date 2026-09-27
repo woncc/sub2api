@@ -261,6 +261,7 @@ type BatchImageConfig struct {
 // 异步生图接口整体禁用，避免把上游返回的大 base64 结果塞进 Redis。
 type ImageStorageConfig struct {
 	Enabled         bool   `mapstructure:"enabled"`
+	Provider        string `mapstructure:"provider"` // s3, aliyun_oss, tencent_cos, qiniu；空值表示 s3
 	Endpoint        string `mapstructure:"endpoint"` // e.g. https://<account_id>.r2.cloudflarestorage.com
 	Region          string `mapstructure:"region"`   // R2 用 "auto"
 	Bucket          string `mapstructure:"bucket"`
@@ -2254,6 +2255,7 @@ func setDefaults() {
 	// decodes keys present in AllKeys(), so a credential that is supplied purely
 	// via IMAGE_STORAGE_* and never appears in config.yaml would be dropped and
 	// silently disable the whole async image feature.
+	viper.SetDefault("image_storage.provider", "")
 	viper.SetDefault("image_storage.endpoint", "")
 	viper.SetDefault("image_storage.bucket", "")
 	viper.SetDefault("image_storage.access_key_id", "")

@@ -24,8 +24,9 @@ type ImageStorageFactory func(ctx context.Context, cfg *config.ImageStorageConfi
 
 // ImageStorageSettings 是后台可编辑的异步生图对象存储配置。
 //
-// ReuseBackupS3 为真时不保存自己的凭证，直接借用数据库备份已配置的 S3 端点与密钥，
+// ReuseBackupS3 为真时不保存自己的厂商、端点与密钥，直接借用数据库备份已配置的对象存储，
 // 只用自己的 Bucket/Prefix 区分对象；这样"数据走 backups/、图片走 images/"无需重复配置。
+// Resolved 只出现在接口响应里，禁止写入 settings JSON。
 type ImageStorageSettings struct {
 	Enabled       bool `json:"enabled"`
 	ReuseBackupS3 bool `json:"reuse_backup_s3"`
@@ -36,12 +37,20 @@ type ImageStorageSettings struct {
 	PresignExpiry    int    `json:"presign_expiry_hours"`
 	MaxDownloadBytes int64  `json:"max_download_bytes"`
 
-	// 以下仅在 ReuseBackupS3 为假时使用
-	Endpoint        string `json:"endpoint"`
-	Region          string `json:"region"`
-	AccessKeyID     string `json:"access_key_id"`
-	SecretAccessKey string `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
-	ForcePathStyle  bool   `json:"force_path_style"`
+	// 以下仅在 ReuseBackupS3 为假时落库。复用时响应里的 provider 与 resolved 来自备份配置。
+	Provider        string                   `json:"provider,omitempty"` // 空值表示 s3
+	Endpoint        string                   `json:"endpoint"`
+	Region          string                   `json:"region"`
+	AccessKeyID     string                   `json:"access_key_id"`
+	SecretAccessKey string                   `json:"secret_access_key,omitempty"` //nolint:revive // field name follows AWS convention
+	ForcePathStyle  bool                     `json:"force_path_style"`
+	Resolved        *StorageResolvedEndpoint `json:"resolved,omitempty"`
+}
+
+// imageStorageBucketHead is the connection probe on the concrete S3 image store.
+// ImageStorage itself stays Save-only.
+type imageStorageBucketHead interface {
+	HeadBucket(ctx context.Context) error
 }
 
 // ImageStorageSettingService 读写后台设置，并把结果解析成一个可直接使用的 uploader。
@@ -146,8 +155,7 @@ func (s *ImageStorageSettingService) Get(ctx context.Context) (*ImageStorageSett
 	if settings == nil {
 		settings = settingsFromConfig(s.fallback)
 	}
-	settings.SecretAccessKey = ""
-	return settings, nil
+	return s.present(ctx, settings)
 }
 
 // SecretConfigured 供前端展示"已配置"占位符。
@@ -166,28 +174,46 @@ func (s *ImageStorageSettingService) SecretConfigured(ctx context.Context) bool 
 // Update 保存设置并立即生效。SecretAccessKey 留空表示沿用已保存的值。
 func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorageSettings) (*ImageStorageSettings, error) {
 	normalizeImageStorageSettings(&in)
+	in.Resolved = nil
 
 	if in.ReuseBackupS3 {
-		// 复用备份凭证时不落自己的密钥，避免同一份密钥在库里存两份。
+		// 复用备份凭证时不落自己的厂商和密钥，避免同一份密钥在库里存两份。
+		in.Provider = ""
 		in.Endpoint, in.Region, in.AccessKeyID, in.SecretAccessKey = "", "", "", ""
 		in.ForcePathStyle = false
-	} else if in.SecretAccessKey == "" {
-		if old, err := s.load(ctx); err == nil && old != nil {
-			in.SecretAccessKey = old.SecretAccessKey
-		}
 	} else {
-		// 拒绝用自动生成的临时密钥加密：重启后密文无法解密（#4524）。
-		// 与备份 S3 配置共用同一把密钥，故复用其配置状态判断。
-		if s.backup == nil || !s.backup.EncryptionKeyConfigured() {
-			return nil, ErrSecretEncryptionKeyNotConfigured
-		}
-		encrypted, err := s.encryptor.Encrypt(in.SecretAccessKey)
+		provider, err := canonicalStorageProvider(in.Provider)
 		if err != nil {
-			return nil, fmt.Errorf("encrypt secret: %w", err)
+			return nil, invalidStorageConfig(err)
 		}
-		in.SecretAccessKey = encrypted
+		in.Provider = provider
+		if in.SecretAccessKey == "" {
+			if old, err := s.load(ctx); err == nil && old != nil {
+				in.SecretAccessKey = old.SecretAccessKey
+			}
+		} else {
+			// 拒绝用自动生成的临时密钥加密：重启后密文无法解密（#4524）。
+			// 与备份 S3 配置共用同一把密钥，故复用其配置状态判断。
+			if s.backup == nil || !s.backup.EncryptionKeyConfigured() {
+				return nil, ErrSecretEncryptionKeyNotConfigured
+			}
+			encrypted, err := s.encryptor.Encrypt(in.SecretAccessKey)
+			if err != nil {
+				return nil, fmt.Errorf("encrypt secret: %w", err)
+			}
+			in.SecretAccessKey = encrypted
+		}
 	}
 
+	presented, err := s.present(ctx, &in)
+	if err != nil {
+		if isStorageConfigValidation(err) {
+			return nil, invalidStorageConfig(err)
+		}
+		return nil, err
+	}
+
+	in.Resolved = nil
 	data, err := json.Marshal(in)
 	if err != nil {
 		return nil, fmt.Errorf("marshal image storage settings: %w", err)
@@ -196,14 +222,13 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 		return nil, fmt.Errorf("save image storage settings: %w", err)
 	}
 	s.Invalidate()
-
-	in.SecretAccessKey = ""
-	return &in, nil
+	return presented, nil
 }
 
 // TestConnection 用给定设置试建一次客户端，用于后台的"测试连接"按钮。
 // 与 Update 一样支持留空 SecretAccessKey 表示沿用已保存的值。
-func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) error {
+// 返回的 resolved 只含端点、签名区域和 path-style，不含密钥。
+func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) (*StorageResolvedEndpoint, error) {
 	normalizeImageStorageSettings(&in)
 	if !in.ReuseBackupS3 && in.SecretAccessKey == "" {
 		old, err := s.load(ctx)
@@ -213,15 +238,30 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	}
 	cfg, err := s.toImageStorageConfig(ctx, &in)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	resolved, resolveErr := resolvedStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle)
 	if !cfg.IsConfigured() {
-		return ErrImageStorageIncomplete
+		if resolveErr != nil {
+			return nil, ErrImageStorageIncomplete
+		}
+		return &resolved, ErrImageStorageIncomplete
 	}
-	if _, err := s.factory(ctx, cfg); err != nil {
-		return err
+	if resolveErr != nil {
+		return nil, resolveErr
 	}
-	return nil
+	storage, err := s.factory(ctx, cfg)
+	if err != nil {
+		return &resolved, err
+	}
+	head, ok := storage.(imageStorageBucketHead)
+	if !ok {
+		return &resolved, errors.New("image storage connection test requires HeadBucket")
+	}
+	if err := head.HeadBucket(ctx); err != nil {
+		return &resolved, err
+	}
+	return &resolved, nil
 }
 
 // effectiveConfig 把后台设置（或 config.yaml 回落）解析成运行时配置。
@@ -232,6 +272,9 @@ func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*conf
 	}
 	if settings == nil {
 		fallback := s.fallback
+		if strings.TrimSpace(fallback.Provider) == "" {
+			fallback.Provider = StorageProviderS3
+		}
 		return &fallback, nil
 	}
 	return s.toImageStorageConfig(ctx, settings)
@@ -240,6 +283,7 @@ func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*conf
 func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, in *ImageStorageSettings) (*config.ImageStorageConfig, error) {
 	cfg := &config.ImageStorageConfig{
 		Enabled:         in.Enabled,
+		Provider:        strings.TrimSpace(in.Provider),
 		Bucket:          in.Bucket,
 		Prefix:          in.Prefix,
 		PublicBaseURL:   in.PublicBaseURL,
@@ -260,6 +304,7 @@ func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, i
 		if backupCfg == nil {
 			return nil, errors.New("image storage is set to reuse the backup S3 configuration, but no backup S3 configuration exists")
 		}
+		cfg.Provider = strings.TrimSpace(backupCfg.Provider)
 		cfg.Endpoint = backupCfg.Endpoint
 		cfg.Region = backupCfg.Region
 		cfg.AccessKeyID = backupCfg.AccessKeyID
@@ -276,6 +321,9 @@ func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, i
 		} else {
 			cfg.SecretAccessKey = decrypted
 		}
+	}
+	if strings.TrimSpace(cfg.Provider) == "" {
+		cfg.Provider = StorageProviderS3
 	}
 	return cfg, nil
 }
@@ -307,6 +355,7 @@ func (s *ImageStorageSettingService) load(ctx context.Context) (*ImageStorageSet
 func settingsFromConfig(cfg config.ImageStorageConfig) *ImageStorageSettings {
 	return &ImageStorageSettings{
 		Enabled:          cfg.Enabled,
+		Provider:         cfg.Provider,
 		Bucket:           cfg.Bucket,
 		Prefix:           cfg.Prefix,
 		PublicBaseURL:    cfg.PublicBaseURL,
@@ -320,6 +369,50 @@ func settingsFromConfig(cfg config.ImageStorageConfig) *ImageStorageSettings {
 	}
 }
 
+// present builds the admin response. Reuse keeps the stored image endpoint and keys
+// wiped, and fills provider plus resolved from the backup config after resolution.
+func (s *ImageStorageSettingService) present(ctx context.Context, in *ImageStorageSettings) (*ImageStorageSettings, error) {
+	if in == nil {
+		in = &ImageStorageSettings{}
+	}
+	out := *in
+	out.SecretAccessKey = ""
+	out.Resolved = nil
+
+	provider := out.Provider
+	region := out.Region
+	bucket := out.Bucket
+	endpoint := out.Endpoint
+	forcePathStyle := out.ForcePathStyle
+	if out.ReuseBackupS3 {
+		backup, err := s.backupCredentials(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if backup != nil {
+			provider = backup.Provider
+			region = backup.Region
+			endpoint = backup.Endpoint
+			forcePathStyle = backup.ForcePathStyle
+			if bucket == "" {
+				bucket = backup.Bucket
+			}
+		}
+	}
+
+	canonical, err := canonicalStorageProvider(provider)
+	if err != nil {
+		return nil, err
+	}
+	out.Provider = canonical
+	resolved, err := resolvedStorageEndpoint(canonical, region, bucket, endpoint, forcePathStyle)
+	if err != nil {
+		return nil, err
+	}
+	out.Resolved = &resolved
+	return &out, nil
+}
+
 func normalizeImageStorageSettings(in *ImageStorageSettings) {
 	in.Bucket = strings.TrimSpace(in.Bucket)
 	in.Endpoint = strings.TrimSpace(in.Endpoint)
@@ -328,6 +421,7 @@ func normalizeImageStorageSettings(in *ImageStorageSettings) {
 	in.SecretAccessKey = strings.TrimSpace(in.SecretAccessKey)
 	in.PublicBaseURL = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(in.PublicBaseURL), "/"))
 
+	in.Provider = strings.TrimSpace(in.Provider)
 	in.Prefix = strings.TrimSpace(in.Prefix)
 	if in.Prefix == "" {
 		in.Prefix = "images/"
@@ -335,7 +429,8 @@ func normalizeImageStorageSettings(in *ImageStorageSettings) {
 	if !strings.HasSuffix(in.Prefix, "/") {
 		in.Prefix += "/"
 	}
-	if in.Region == "" {
+	// s3（含未填写的厂商）沿用历史默认 region。其它厂商禁止把空 region 写成 auto。
+	if (in.Provider == "" || in.Provider == StorageProviderS3) && in.Region == "" {
 		in.Region = "auto"
 	}
 	if in.PresignExpiry <= 0 {

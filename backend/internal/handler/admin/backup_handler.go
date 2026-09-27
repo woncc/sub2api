@@ -52,12 +52,8 @@ func (h *BackupHandler) TestS3Connection(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	err := h.backupService.TestS3Connection(c.Request.Context(), req)
-	if err != nil {
-		response.Success(c, gin.H{"ok": false, "message": err.Error()})
-		return
-	}
-	response.Success(c, gin.H{"ok": true, "message": "connection successful"})
+	resolved, err := h.backupService.TestS3Connection(c.Request.Context(), req)
+	response.Success(c, storageTestResult(resolved, err))
 }
 
 // ─── 定时备份 ───
@@ -250,9 +246,21 @@ func (h *BackupHandler) TestImageStorageConnection(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if err := h.imageStorage.TestConnection(c.Request.Context(), req); err != nil {
-		response.Success(c, gin.H{"ok": false, "message": err.Error()})
-		return
+	resolved, err := h.imageStorage.TestConnection(c.Request.Context(), req)
+	response.Success(c, storageTestResult(resolved, err))
+}
+
+// storageTestResult is the body of both connection-test routes.
+// resolved is present whenever the endpoint can be derived. Secrets are never copied in.
+func storageTestResult(resolved *service.StorageResolvedEndpoint, err error) gin.H {
+	body := gin.H{"ok": err == nil}
+	if err != nil {
+		body["message"] = err.Error()
+	} else {
+		body["message"] = "connection successful"
 	}
-	response.Success(c, gin.H{"ok": true, "message": "connection successful"})
+	if resolved != nil {
+		body["resolved"] = resolved
+	}
+	return body
 }
