@@ -1,6 +1,16 @@
 import { apiClient } from '../client'
 
+export type StorageProvider = 's3' | 'aliyun_oss' | 'tencent_cos' | 'qiniu'
+
+/** Response-only. Computed by the backend; never written back to settings. */
+export interface StorageEndpointResolved {
+  endpoint: string
+  region: string
+  force_path_style: boolean
+}
+
 export interface BackupS3Config {
+  provider?: StorageProvider
   endpoint: string
   region: string
   bucket: string
@@ -8,6 +18,7 @@ export interface BackupS3Config {
   secret_access_key?: string
   prefix: string
   force_path_style: boolean
+  resolved?: StorageEndpointResolved
 }
 
 export interface BackupScheduleConfig {
@@ -76,6 +87,7 @@ export interface CreateBackupRequest {
 export interface TestS3Response {
   ok: boolean
   message: string
+  resolved?: StorageEndpointResolved
 }
 
 // S3 Config
@@ -96,8 +108,8 @@ export async function testS3Connection(config: BackupS3Config): Promise<TestS3Re
 
 // Async image object storage
 //
-// Shares the S3 client with backups, so `reuse_backup_s3` borrows the endpoint and
-// credentials configured above and only keeps its own bucket/prefix.
+// Shares the S3 client with backups. `reuse_backup_s3` borrows provider, endpoint,
+// region, keys, and path-style from the backup config and only keeps its own bucket/prefix.
 export interface ImageStorageConfig {
   enabled: boolean
   reuse_backup_s3: boolean
@@ -106,11 +118,13 @@ export interface ImageStorageConfig {
   public_base_url: string
   presign_expiry_hours: number
   max_download_bytes: number
+  provider?: StorageProvider
   endpoint: string
   region: string
   access_key_id: string
   secret_access_key?: string
   force_path_style: boolean
+  resolved?: StorageEndpointResolved
 }
 
 export interface ImageStorageConfigResponse {
