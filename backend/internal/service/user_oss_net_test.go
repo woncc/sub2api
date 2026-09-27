@@ -27,12 +27,12 @@ func TestNewUserOSSHTTPClientIgnoresEnvironmentProxy(t *testing.T) {
 	require.Nil(t, transport.Proxy)
 	require.Equal(t, reflect.ValueOf(dialUserOSSPublic).Pointer(), reflect.ValueOf(transport.DialContext).Pointer())
 
-	req, err := http.NewRequest(http.MethodHead, "https://bucket.example/object", nil)
-	require.NoError(t, err)
-	proxyURL, err := http.ProxyFromEnvironment(req)
-	require.NoError(t, err)
-	require.NotNil(t, proxyURL)
-	require.Equal(t, "proxy.example:8080", proxyURL.Host)
+	// DefaultTransport.Proxy is ProxyFromEnvironment. That function caches the
+	// first process environment, so a later Setenv cannot prove it would select
+	// a proxy. The client must drop the function entirely.
+	base, ok := http.DefaultTransport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, base.Proxy)
 }
 
 func TestRejectUserOSSIPBlocksMonitorOnlyRanges(t *testing.T) {
