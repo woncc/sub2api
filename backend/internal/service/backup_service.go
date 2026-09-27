@@ -105,6 +105,8 @@ type BackupS3Config struct {
 	Prefix          string                   `json:"prefix"`                      // S3 key 前缀，如 "backups/"
 	ForcePathStyle  bool                     `json:"force_path_style"`
 	Resolved        *StorageResolvedEndpoint `json:"resolved,omitempty"`
+	// SecretConfigured is response-only. It is cleared before settings JSON is stored.
+	SecretConfigured bool `json:"secret_configured,omitempty"`
 }
 
 // IsConfigured 检查必要字段是否已配置
@@ -397,7 +399,9 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 	cfg.Region = strings.TrimSpace(cfg.Region)
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.Bucket = strings.TrimSpace(cfg.Bucket)
+	cfg.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
 	cfg.Resolved = nil
+	cfg.SecretConfigured = false
 
 	provider, err := canonicalStorageProvider(cfg.Provider)
 	if err != nil {
@@ -410,8 +414,13 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 
 	// 如果没提供 secret，保留原有值。loadS3Config 会解密，所以这里拿到的是明文，
 	// 和调用方新填的 secret 一样，都必须走下面的加密再落库。
+	// 纯空白已在上面 TrimSpace，与图片配置一样按「未填写」处理。
+	// 读取失败必须拒绝更新：把错误当成「从未配置」会用空密钥覆盖已存密钥。
 	if cfg.SecretAccessKey == "" {
-		old, _ := s.loadS3Config(ctx)
+		old, err := s.loadS3Config(ctx)
+		if err != nil {
+			return nil, err
+		}
 		if old != nil {
 			cfg.SecretAccessKey = old.SecretAccessKey
 		}
@@ -435,6 +444,7 @@ func (s *BackupService) UpdateS3Config(ctx context.Context, cfg BackupS3Config) 
 	}
 
 	cfg.Resolved = nil
+	cfg.SecretConfigured = false
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal s3 config: %w", err)
@@ -457,6 +467,7 @@ func presentS3Config(cfg *BackupS3Config) (*BackupS3Config, error) {
 		cfg = &BackupS3Config{}
 	}
 	out := *cfg
+	out.SecretConfigured = strings.TrimSpace(out.SecretAccessKey) != ""
 	out.SecretAccessKey = ""
 	out.Resolved = nil
 	provider, err := canonicalStorageProvider(out.Provider)
@@ -473,9 +484,14 @@ func presentS3Config(cfg *BackupS3Config) (*BackupS3Config, error) {
 }
 
 func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config) (*StorageResolvedEndpoint, error) {
-	// 如果没提供 secret，用已保存的
+	// 如果没提供 secret，用已保存的。空白与图片配置一样视为未填写。
+	// 读失败时不能把「没读到」当成没有密钥。
+	cfg.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
 	if cfg.SecretAccessKey == "" {
-		old, _ := s.loadS3Config(ctx)
+		old, err := s.loadS3Config(ctx)
+		if err != nil {
+			return nil, err
+		}
 		if old != nil {
 			cfg.SecretAccessKey = old.SecretAccessKey
 		}
@@ -1366,6 +1382,9 @@ func (s *BackupService) GetBackupDownloadURL(ctx context.Context, backupID strin
 
 func (s *BackupService) loadS3Config(ctx context.Context) (*BackupS3Config, error) {
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupS3Config)
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return nil, fmt.Errorf("load s3 config: %w", err)
+	}
 	if err != nil || raw == "" {
 		return nil, nil //nolint:nilnil // no config is a valid state
 	}

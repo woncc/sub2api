@@ -333,7 +333,7 @@ describe('admin BackupView', () => {
     expect(field(wrapper, 'backup-storage-endpoint').value).toBe('')
     expect(field(wrapper, 'backup-storage-endpoint').placeholder).toBe('https://<account_id>.r2.cloudflarestorage.com')
     expect(field(wrapper, 'backup-storage-secret').value).toBe('')
-    expect(field(wrapper, 'backup-storage-secret').placeholder).toBe('admin.backup.s3.secretConfigured')
+    expect(field(wrapper, 'backup-storage-secret').placeholder).toBe('')
     expect(wrapper.find('[data-testid="backup-r2-guide"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="backup-force-path-style"]').exists()).toBe(true)
 
@@ -351,6 +351,18 @@ describe('admin BackupView', () => {
       force_path_style: false,
     })
     expect(payload).not.toHaveProperty('resolved')
+  })
+
+  it('密钥占位只看 secret_configured，不看 access key id', async () => {
+    getS3Config.mockResolvedValue({ access_key_id: 'AK', secret_configured: false, region: 'auto' })
+    const withoutSecret = mountBackupView()
+    await flushPromises()
+    expect(field(withoutSecret, 'backup-storage-secret').placeholder).toBe('')
+
+    getS3Config.mockResolvedValue({ access_key_id: '', secret_configured: true, region: 'auto' })
+    const withSecret = mountBackupView()
+    await flushPromises()
+    expect(field(withSecret, 'backup-storage-secret').placeholder).toBe('admin.backup.s3.secretConfigured')
   })
 
   it('空 endpoint 只把后端解析出的地址放进 placeholder', async () => {
@@ -621,8 +633,70 @@ describe('admin BackupView', () => {
     await flushPromises()
     expect(field(wrapper, 'image-storage-region').value).toBe('')
     expect(field(wrapper, 'image-storage-endpoint').value).toBe('')
+    expect(field(wrapper, 'image-storage-secret').placeholder).toBe('')
     expect(field(wrapper, 'image-storage-endpoint').placeholder).toBe('https://cos.ap-guangzhou.myqcloud.com')
     expect(wrapper.find('[data-testid="image-force-path-style"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="image-bucket-hint"]').text()).toBe('admin.backup.s3.tencentBucketHint')
+  })
+
+  it('取消复用后密钥占位看图像行自己的密钥，而不是复用期间的备份密钥', async () => {
+    getImageStorageConfig.mockResolvedValue({
+      config: {
+        reuse_backup_s3: true,
+        provider: 'aliyun_oss',
+        region: 'cn-hangzhou',
+        access_key_id: 'BACKUP',
+      },
+      secret_configured: true,
+      own_secret_configured: false,
+    })
+    const wrapper = mountBackupView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="image-storage-secret"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="image-reuse-backup"]').setValue(false)
+    await flushPromises()
+    expect(field(wrapper, 'image-storage-secret').placeholder).toBe('')
+  })
+
+  it('复用期间图像行仍有自己的密钥时，取消复用后占位保持已配置', async () => {
+    getImageStorageConfig.mockResolvedValue({
+      config: {
+        reuse_backup_s3: true,
+        provider: 's3',
+        region: 'auto',
+      },
+      secret_configured: true,
+      own_secret_configured: true,
+    })
+    const wrapper = mountBackupView()
+    await flushPromises()
+    await wrapper.get('[data-testid="image-reuse-backup"]').setValue(false)
+    await flushPromises()
+    expect(field(wrapper, 'image-storage-secret').placeholder).toBe('admin.backup.s3.secretConfigured')
+  })
+
+  it('单独配置时来回勾选复用仍保留图像行自己的密钥占位', async () => {
+    getImageStorageConfig.mockResolvedValue({
+      config: {
+        reuse_backup_s3: false,
+        provider: 's3',
+        region: 'auto',
+        access_key_id: 'IMG',
+      },
+      secret_configured: true,
+      own_secret_configured: true,
+    })
+    const wrapper = mountBackupView()
+    await flushPromises()
+    expect(field(wrapper, 'image-storage-secret').placeholder).toBe('admin.backup.s3.secretConfigured')
+
+    await wrapper.get('[data-testid="image-reuse-backup"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="image-storage-secret"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="image-reuse-backup"]').setValue(false)
+    await flushPromises()
+    expect(field(wrapper, 'image-storage-secret').placeholder).toBe('admin.backup.s3.secretConfigured')
   })
 })

@@ -17,6 +17,7 @@ import (
 type stubSettingRepo struct {
 	mu     sync.Mutex
 	values map[string]string
+	getErr error
 }
 
 func newStubSettingRepo() *stubSettingRepo {
@@ -27,6 +28,9 @@ func (r *stubSettingRepo) Get(context.Context, string) (*Setting, error) { retur
 func (r *stubSettingRepo) GetValue(_ context.Context, key string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.getErr != nil {
+		return "", r.getErr
+	}
 	return r.values[key], nil
 }
 
@@ -333,6 +337,10 @@ func TestImageStorageSettingsOwnProviderResolvedIsNotStored(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "region is required")
 	_, err = svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Provider: StorageProviderAliyunOSS, Region: "auto", Bucket: "images", AccessKeyID: "ak", SecretAccessKey: "sk",
+	})
+	require.ErrorContains(t, err, "region is required")
+	_, err = svc.Update(ctx, ImageStorageSettings{
 		Enabled: true, Provider: "minio", Region: "auto", Bucket: "images", AccessKeyID: "ak", SecretAccessKey: "sk",
 	})
 	require.ErrorContains(t, err, "unknown storage provider")
@@ -420,4 +428,104 @@ func TestImageStorageTestConnectionHeadBucketKeepsSecret(t *testing.T) {
 	raw, marshalErr = json.Marshal(resolved)
 	require.NoError(t, marshalErr)
 	require.NotContains(t, string(raw), "backup-sk")
+}
+
+func TestImageStorageUpdateEmptySecretDoesNotOverwriteWhenLoadFails(t *testing.T) {
+	svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+
+	_, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Bucket: "my-images",
+		Endpoint:    "https://acct.r2.cloudflarestorage.com",
+		AccessKeyID: "ak", SecretAccessKey: "  super-secret  ",
+	})
+	require.NoError(t, err)
+	raw, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	require.Contains(t, raw, "enc:super-secret")
+	require.NotContains(t, raw, "enc:  super-secret")
+
+	_, err = svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Bucket: "my-images",
+		Endpoint: "https://acct.r2.cloudflarestorage.com", AccessKeyID: "ak",
+		SecretAccessKey: " \t ",
+	})
+	require.NoError(t, err)
+	require.True(t, svc.SecretConfigured(ctx))
+	require.True(t, svc.OwnSecretConfigured(ctx))
+
+	repo.getErr = errors.New("db down")
+	_, err = svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Bucket: "wiped",
+		Endpoint: "https://acct.r2.cloudflarestorage.com", AccessKeyID: "ak",
+	})
+	require.Error(t, err)
+	_, err = svc.TestConnection(ctx, ImageStorageSettings{
+		Enabled: true, Bucket: "my-images",
+		Endpoint: "https://acct.r2.cloudflarestorage.com", AccessKeyID: "ak",
+	})
+	require.Error(t, err)
+
+	repo.getErr = nil
+	rawAfter, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	require.Contains(t, rawAfter, `"secret_access_key":"enc:super-secret"`)
+	require.NotContains(t, rawAfter, `"bucket":"wiped"`)
+	require.True(t, svc.OwnSecretConfigured(ctx))
+}
+
+func TestImageStorageOwnSecretConfiguredIgnoresBackupSecretWhileReusing(t *testing.T) {
+	svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	seedBackupS3(t, repo, BackupS3Config{
+		Endpoint: "https://acct.r2.cloudflarestorage.com", Region: "auto",
+		Bucket: "backup-bucket", AccessKeyID: "backup-ak", SecretAccessKey: "backup-sk",
+	})
+
+	_, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, ReuseBackupS3: true, Bucket: "images",
+	})
+	require.NoError(t, err)
+	require.True(t, svc.SecretConfigured(ctx), "reuse reports the backup secret")
+	require.False(t, svc.OwnSecretConfigured(ctx), "reuse does not copy the backup secret onto the image row")
+
+	_, err = svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, ReuseBackupS3: false, Provider: StorageProviderS3, Region: "auto",
+		Bucket: "images", Endpoint: "https://acct.r2.cloudflarestorage.com",
+		AccessKeyID: "image-ak", SecretAccessKey: "image-sk",
+	})
+	require.NoError(t, err)
+	require.True(t, svc.SecretConfigured(ctx))
+	require.True(t, svc.OwnSecretConfigured(ctx))
+}
+
+func TestImageStorageFallbackRejectsAutoRegionForNonS3(t *testing.T) {
+	providers := []string{StorageProviderAliyunOSS, StorageProviderTencentCOS, StorageProviderQiniu}
+	for _, provider := range providers {
+		t.Run(provider, func(t *testing.T) {
+			svc, _, built := newImageStorageFixture(t, config.ImageStorageConfig{
+				Enabled: true, Provider: "  " + provider + " ", Region: " auto ",
+				Endpoint: "", Bucket: "example-1250000000", AccessKeyID: "ak", SecretAccessKey: "sk",
+			})
+			_, enabled := svc.resolve()
+			require.False(t, enabled)
+			require.Empty(t, *built, "a nonsense auto endpoint must not be handed to the client")
+
+			_, err := svc.Get(context.Background())
+			require.ErrorContains(t, err, "region is required")
+			require.NotContains(t, err.Error(), "oss-auto")
+			require.NotContains(t, err.Error(), "cos.auto")
+			require.NotContains(t, err.Error(), "s3.auto")
+		})
+	}
+
+	svc, _, built := newImageStorageFixture(t, config.ImageStorageConfig{
+		Enabled: true, Provider: StorageProviderQiniu, Region: "cn-east-1",
+		Bucket: "space", AccessKeyID: "ak", SecretAccessKey: "sk",
+	})
+	_, enabled := svc.resolve()
+	require.True(t, enabled)
+	require.Equal(t, StorageProviderQiniu, (*built)[0].Provider)
+	require.Equal(t, "cn-east-1", (*built)[0].Region)
+	require.NotContains(t, (*built)[0].Endpoint, "auto")
 }

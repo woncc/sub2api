@@ -34,26 +34,37 @@ Turning the switch off stops new submissions but keeps already-accepted tasks po
 
 The admin setting takes precedence. When nothing has ever been saved there, the `image_storage` block in `config.yaml` is used instead, so deployments that enabled the feature before the admin UI existed keep working untouched.
 
-Configure an S3-compatible object store (AWS S3, Cloudflare R2, Aliyun OSS, MinIO, …) in `config.yaml` (all keys also accept the `IMAGE_STORAGE_*` environment overrides):
+Configure object storage in `config.yaml`. The same block is in `deploy/config.example.yaml`. Every key also accepts an `IMAGE_STORAGE_*` environment override (`IMAGE_STORAGE_PROVIDER`, `IMAGE_STORAGE_REGION`, `IMAGE_STORAGE_ENDPOINT`, and the rest). `provider` is one of four values. An empty provider means `s3`.
+
+| `provider` | Service | When `endpoint` is empty | Region |
+| --- | --- | --- | --- |
+| `s3` | Cloudflare R2 and other S3-compatible stores (AWS S3, MinIO) | Kept as written, including empty | `auto` for R2. Any other region is passed through |
+| `aliyun_oss` | Alibaba Cloud OSS | `https://s3.oss-{region}.aliyuncs.com` | Required. One leading `oss-` is removed only when the endpoint is derived |
+| `tencent_cos` | Tencent Cloud COS | `https://cos.{region}.myqcloud.com` | Required. The bucket must look like `{name}-{appid}` (for example `example-1250000000`) |
+| `qiniu` | Qiniu Kodo | `https://s3.{region}.qiniucs.com` | Required. Any region id is accepted |
+
+A non-empty `endpoint` is used as written. `region: "auto"` is valid only for `s3`. The sample file leaves `provider` empty and `region` at `auto`, which is the R2 default. Setting `aliyun_oss`, `tencent_cos`, or `qiniu` while leaving `region: auto` — from the file or from `IMAGE_STORAGE_REGION` — is rejected. The process does not build `https://s3.oss-auto.aliyuncs.com`, `https://cos.auto.myqcloud.com`, or `https://s3.auto.qiniucs.com`. The admin UI clears `auto` when the provider changes; file and environment config follow the same rule.
 
 ```yaml
 image_storage:
   enabled: true
-  endpoint: "https://<account_id>.r2.cloudflarestorage.com"  # AWS 官方可留空
-  region: "auto"
+  # s3 | aliyun_oss | tencent_cos | qiniu. Empty means s3.
+  provider: ""
+  endpoint: "https://<account_id>.r2.cloudflarestorage.com"  # empty derives a public URL for the three non-s3 providers; AWS S3 may stay empty
+  region: "auto"          # s3/R2 only. Non-s3 providers need a real region.
   bucket: "my-images"
   access_key_id: "..."
   secret_access_key: "..."
   prefix: "images/"
-  force_path_style: false          # MinIO/path-style buckets set true
-  public_base_url: ""              # set to return public_base_url/key直链; empty → presigned URL
+  force_path_style: false          # MinIO/path-style buckets set true. Derived non-s3 endpoints use virtual-hosted style.
+  public_base_url: ""              # set to return public_base_url/key; empty → presigned URL
   presign_expiry_hours: 24         # presigned link TTL when public_base_url is empty
   max_download_bytes: 33554432     # cap when re-hosting an upstream image URL (32MB)
 ```
 
 When a task completes, each generated image is uploaded to the bucket and the result is rewritten to a compact form: `data[].url` points at the stored object (a permanent `public_base_url/key` link, or a time-limited presigned URL) and `b64_json` is removed. Only this small JSON is stored in Redis. If an upload fails, the task is marked `failed` rather than persisting the raw base64.
 
-To support a different vendor beyond the S3-compatible client, implement the `service.ImageStorage` interface (`Save(ctx, key, contentType, data) (url, error)`) and provide it in place of the S3 implementation.
+These four providers share one S3-compatible client. To support a different vendor, implement the `service.ImageStorage` interface (`Save(ctx, key, contentType, data) (url, error)`) and provide it in place of that client.
 
 ### Troubleshooting: the endpoints return 404 after enabling
 
@@ -66,6 +77,8 @@ WARN image_storage.enabled is true but object storage is not fully configured; a
 ```
 
 `missing_keys` names exactly which credentials were empty when the config was loaded.
+
+A non-s3 `provider` left on `region: auto` fails closed as well. Async image tasks stay disabled, and the log is `image_storage.settings_load_failed` with `region is required`. Set a real region, or leave `provider` empty to keep the `s3` default.
 
 Note that releases **before v0.1.161 silently dropped `IMAGE_STORAGE_ENDPOINT`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` and `_PUBLIC_BASE_URL`** when they were supplied only through the environment: those keys had no registered default, and viper cannot see an environment variable for a key it does not already know about. Deployments driven purely by `environment:` — which is what `deploy/docker-compose.yml` does by default — therefore reported `enabled: true` with empty credentials and 404'd on every async call. On an affected release the workaround is to also place the `image_storage` block in `/app/data/config.yaml` (copy it from `deploy/config.example.yaml`); once the keys exist in the file, the environment overrides apply normally.
 
