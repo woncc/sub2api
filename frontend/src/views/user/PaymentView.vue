@@ -288,6 +288,7 @@ import {
   getVisibleMethods,
   normalizeVisibleMethod,
   readPaymentRecoverySnapshot,
+  readStoredAuthUserId,
   type PaymentRecoverySnapshot,
   writePaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
@@ -416,7 +417,9 @@ const paymentState = ref<PaymentRecoverySnapshot>(emptyPaymentState())
 
 function persistRecoverySnapshot(snapshot: PaymentRecoverySnapshot) {
   if (typeof window === 'undefined' || !snapshot.orderId) return
-  writePaymentRecoverySnapshot(window.localStorage, snapshot, PAYMENT_RECOVERY_STORAGE_KEY)
+  const userId = authStore.user?.id
+  if (typeof userId !== 'number' || userId <= 0) return
+  writePaymentRecoverySnapshot(window.localStorage, { ...snapshot, userId }, PAYMENT_RECOVERY_STORAGE_KEY)
 }
 
 function removeRecoverySnapshot() {
@@ -1145,7 +1148,10 @@ onMounted(async () => {
           : undefined
       const restored = readPaymentRecoverySnapshot(
         window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
-        { resumeToken: routeResumeToken },
+        {
+          resumeToken: routeResumeToken,
+          boundUserId: authStore.user?.id ?? readStoredAuthUserId(window.localStorage),
+        },
       )
       if (restored) {
         paymentState.value = restored

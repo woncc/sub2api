@@ -48,6 +48,11 @@ services:
       # =======================================================================
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
+      # Fail closed: do not trust CF-Connecting-IP, X-Real-IP, or
+      # X-Forwarded-For from clients that can reach this published port.
+      # Set true only behind a proxy that overwrites those headers from the
+      # TCP peer, and do not publish 8080 to untrusted networks while it is true.
+      - SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL=${SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL:-false}
       - SERVER_MODE=${SERVER_MODE:-release}
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}

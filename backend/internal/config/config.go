@@ -10,6 +10,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -743,6 +744,10 @@ type SecurityConfig struct {
 	ProxyFallback   ProxyFallbackConfig  `mapstructure:"proxy_fallback"`
 	ProxyProbe      ProxyProbeConfig     `mapstructure:"proxy_probe"`
 	// TrustForwardedIPForAPIKeyACL enables legacy raw forwarded-header takeover.
+	// The default is false: an origin published on 0.0.0.0 must not treat
+	// client-supplied CF-Connecting-IP, X-Real-IP, or X-Forwarded-For as the
+	// API-key ACL or rate-limit address. Enable it only behind a proxy that
+	// overwrites those headers from the TCP peer, and firewall the origin.
 	// When disabled, server.trusted_proxies is authoritative for all client-IP consumers.
 	TrustForwardedIPForAPIKeyACL  bool                                       `mapstructure:"trust_forwarded_ip_for_api_key_acl"`
 	ForwardedClientIPHeaders      []string                                   `mapstructure:"forwarded_client_ip_headers" json:"forwarded_client_ip_headers" yaml:"forwarded_client_ip_headers"`
@@ -1988,20 +1993,45 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	return &cfg, nil
 }
 
-func configureConfigSource(setConfigFile, addConfigPath func(string)) {
+// loaderConfigSearch lists the config locations Load actually reads.
+// An explicit CONFIG_FILE is used alone. Otherwise the directories are in
+// priority order and viper loads the first config.yaml it finds.
+func loaderConfigSearch() (explicitFile string, dirs []string) {
 	if configFile := strings.TrimSpace(os.Getenv("CONFIG_FILE")); configFile != "" {
-		setConfigFile(configFile)
+		return configFile, nil
+	}
+	if dataDir := strings.TrimSpace(os.Getenv("DATA_DIR")); dataDir != "" {
+		dirs = append(dirs, dataDir)
+	}
+	dirs = append(dirs, "/app/data", ".", "./config", "/etc/sub2api")
+	return "", dirs
+}
+
+// LoaderConfigFiles returns the config.yaml paths the runtime loader can select.
+// The setup wizard treats any existing file in this list as already installed
+// so an anonymous /setup/install cannot shadow CONFIG_FILE, ./config, or
+// /etc/sub2api by writing an earlier data-dir config.
+func LoaderConfigFiles() []string {
+	if explicit, _ := loaderConfigSearch(); explicit != "" {
+		return []string{explicit}
+	}
+	_, dirs := loaderConfigSearch()
+	files := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		files = append(files, filepath.Join(dir, "config.yaml"))
+	}
+	return files
+}
+
+func configureConfigSource(setConfigFile, addConfigPath func(string)) {
+	if explicit, _ := loaderConfigSearch(); explicit != "" {
+		setConfigFile(explicit)
 		return
 	}
-
-	// Add config paths in priority order.
-	if dataDir := strings.TrimSpace(os.Getenv("DATA_DIR")); dataDir != "" {
-		addConfigPath(dataDir)
+	_, dirs := loaderConfigSearch()
+	for _, dir := range dirs {
+		addConfigPath(dir)
 	}
-	addConfigPath("/app/data")
-	addConfigPath(".")
-	addConfigPath("./config")
-	addConfigPath("/etc/sub2api")
 }
 
 func setDefaults() {
@@ -2085,7 +2115,10 @@ func setDefaults() {
 	viper.SetDefault("security.csp.enabled", true)
 	viper.SetDefault("security.csp.policy", DefaultCSPPolicy)
 	viper.SetDefault("security.proxy_probe.insecure_skip_verify", false)
-	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", true)
+	// Fail closed for origins that publish the process port directly.
+	// Set true only behind a proxy that rewrites CF-Connecting-IP, X-Real-IP,
+	// and X-Forwarded-For from the connecting peer. See deploy/EDGE_SECURITY.md.
+	viper.SetDefault("security.trust_forwarded_ip_for_api_key_acl", false)
 
 	// Security - disable direct fallback on proxy error
 	viper.SetDefault("security.proxy_fallback.allow_direct_on_error", false)

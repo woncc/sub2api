@@ -144,6 +144,7 @@ describe('useAuthStore', () => {
       // 先登录
       await store.login({ email: 'test@example.com', password: '123456' })
       expect(store.isAuthenticated).toBe(true)
+      localStorage.setItem('payment.recovery.current', JSON.stringify({ clientSecret: 'secret-from-user-a' }))
 
       // 注销
       await store.logout()
@@ -155,6 +156,17 @@ describe('useAuthStore', () => {
       expect(localStorage.getItem('auth_user')).toBeNull()
       expect(localStorage.getItem('refresh_token')).toBeNull()
       expect(localStorage.getItem('token_expires_at')).toBeNull()
+      expect(localStorage.getItem('payment.recovery.current')).toBeNull()
+    })
+
+    it('登录时清除上一个账号留下的支付恢复快照', async () => {
+      localStorage.setItem('payment.recovery.current', JSON.stringify({ clientSecret: 'secret-from-user-a', userId: 9 }))
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+
+      await store.login({ email: 'test@example.com', password: '123456' })
+
+      expect(localStorage.getItem('payment.recovery.current')).toBeNull()
     })
   })
 

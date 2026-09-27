@@ -29,9 +29,16 @@ the application's responsibility.
 
 ## Trusted client IPs
 
-`security.trust_forwarded_ip_for_api_key_acl` is enabled by default for upgrade
-compatibility. While enabled, raw forwarding headers take over client-IP
-resolution for logs and security-sensitive paths. Custom headers from
+`security.trust_forwarded_ip_for_api_key_acl` defaults to false. While it is
+false, Gin's `server.trusted_proxies` chain is the only client-IP source for
+API-key allow and deny lists, invalid-auth buckets, and auth rate limits.
+Client-supplied `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` are
+ignored. Enable the switch only when a reverse proxy that rewrites those
+headers from the TCP peer is the only path to the process, and firewall the
+origin so clients cannot connect to the published port directly. Compose and
+the systemd unit set the switch false for that reason. While the switch is
+true, raw forwarding headers take over client-IP resolution for logs and
+security-sensitive paths. Custom headers from
 `security.forwarded_client_ip_headers` are checked in configured order before
 the built-in `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` fallback.
 Header names are case-insensitive, normalized when loaded, de-duplicated, and
@@ -49,12 +56,14 @@ headers are ignored completely when the switch is disabled. In that mode Gin's
 CIDR/IP addresses that connect directly to Sub2API. An explicit empty list
 trusts no forwarded client IPs.
 
-On the first upgrade to this mode, a legacy `false` value is changed to `true`
-only when `server.trusted_proxies` was not explicitly configured; explicit
-proxy policies remain in secure mode. New installations persist the configured
-custom header list during database initialization. Existing installations
-backfill a missing database value from the YAML configuration. A hidden
-migration marker prevents later administrator changes from being overwritten.
+On the first upgrade to forwarded-client-IP mode v2, a legacy stored `false`
+is changed to `true` only when `server.trusted_proxies` was not explicitly
+configured; explicit proxy policies remain in secure mode. A missing database
+value does not take that path and keeps the config default, which is false.
+New installations persist the configured custom header list during database
+initialization. Existing installations backfill a missing database value from
+the YAML configuration. A hidden migration marker prevents later administrator
+changes from being overwritten.
 If settings cannot be read or the persisted custom-header list is malformed,
 the process fails closed to trusted-proxy mode with no custom headers. If a
 migration write fails, the computed mode remains active for the current process

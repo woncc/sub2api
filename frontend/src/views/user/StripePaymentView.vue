@@ -102,7 +102,8 @@ import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import { formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
-import { PAYMENT_RECOVERY_STORAGE_KEY, readPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
+import { PAYMENT_RECOVERY_STORAGE_KEY, readPaymentRecoverySnapshot, readStoredAuthUserId } from '@/components/payment/paymentFlow'
+import { useAuthStore } from '@/stores/auth'
 import type { PaymentOrder } from '@/types/payment'
 import type { Stripe, StripeElements } from '@stripe/stripe-js'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -112,6 +113,7 @@ const i18n = useI18n()
 const { t } = i18n
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const paymentStore = usePaymentStore()
 
 // 弹窗模式：指定支付宝或微信方式时跳过 AppLayout
@@ -149,7 +151,10 @@ onMounted(async () => {
     if (typeof window !== 'undefined') {
       const restored = readPaymentRecoverySnapshot(
         window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
-        { resumeToken },
+        {
+          resumeToken,
+          boundUserId: authStore.user?.id ?? readStoredAuthUserId(window.localStorage),
+        },
       )
       if (restored?.orderId === orderId) {
         currency.value = normalizePaymentCurrency(restored.currency)

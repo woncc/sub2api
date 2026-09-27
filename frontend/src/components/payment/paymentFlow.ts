@@ -50,6 +50,8 @@ export interface PaymentRecoverySnapshot {
   resumeToken: string
   alipayMobilePrecreateDeepLink?: boolean
   createdAt: number
+  /** Account that created the checkout. Recovery is refused for any other principal. */
+  userId?: number
 }
 
 export interface PaymentLaunchContext {
@@ -271,9 +273,21 @@ export function clearPaymentRecoverySnapshot(
   storage.removeItem(key)
 }
 
+export function readStoredAuthUserId(storage: Pick<Storage, 'getItem'> | null | undefined): number | null {
+  if (!storage) return null
+  const raw = storage.getItem('auth_user')
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { id?: unknown }
+    return typeof parsed.id === 'number' && parsed.id > 0 ? parsed.id : null
+  } catch {
+    return null
+  }
+}
+
 export function readPaymentRecoverySnapshot(
   raw: string | null | undefined,
-  options: { now?: number; resumeToken?: string } = {},
+  options: { now?: number; resumeToken?: string; boundUserId?: number | null } = {},
 ): PaymentRecoverySnapshot | null {
   if (!raw) return null
 
@@ -309,6 +323,12 @@ export function readPaymentRecoverySnapshot(
     if (options.resumeToken && parsed.resumeToken !== options.resumeToken) {
       return null
     }
+    if ('boundUserId' in options) {
+      const boundUserId = options.boundUserId
+      if (typeof boundUserId !== 'number' || boundUserId <= 0 || parsed.userId !== boundUserId) {
+        return null
+      }
+    }
 
     return {
       orderId: parsed.orderId,
@@ -329,6 +349,7 @@ export function readPaymentRecoverySnapshot(
       resumeToken: parsed.resumeToken,
       alipayMobilePrecreateDeepLink: parsed.alipayMobilePrecreateDeepLink === true,
       createdAt: parsed.createdAt,
+      userId: typeof parsed.userId === 'number' ? parsed.userId : undefined,
     }
   } catch {
     return null

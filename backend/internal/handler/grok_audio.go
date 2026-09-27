@@ -34,6 +34,16 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	if !h.ensureResponsesDependencies(c, nil) {
 		return
 	}
+	reqLog := requestLogger(c, "handler.openai_gateway.grok_realtime")
+	model := c.Query("model")
+	if strings.TrimSpace(model) == "" {
+		model = "grok-voice-latest"
+	}
+	// The allowlist middleware admits a missing query model. Re-check the
+	// voice model this handler will put on the upstream WebSocket.
+	if rejectBlockedGroupModel(c, apiKey.Group, model) {
+		return
+	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
@@ -42,12 +52,6 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		}
 		h.errorResponse(c, status, code, message)
 		return
-	}
-
-	reqLog := requestLogger(c, "handler.openai_gateway.grok_realtime")
-	model := c.Query("model")
-	if strings.TrimSpace(model) == "" {
-		model = "grok-voice-latest"
 	}
 	// Keep the HTTP response uncommitted while selecting and probing an account.
 	// Realtime is not an HTTP streaming response; using reqStream=true here would

@@ -28,6 +28,9 @@ ReadWritePaths=/opt/sub2api
 Environment=GIN_MODE=release
 Environment=SERVER_HOST=0.0.0.0
 Environment=SERVER_PORT=8080
+# Fail closed unless a header-rewriting proxy is the only client of this port.
+# Set true only in that deployment, together with a host firewall.
+Environment=SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL=false
 
 [Install]
 WantedBy=multi-user.target

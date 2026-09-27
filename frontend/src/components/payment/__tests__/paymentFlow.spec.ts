@@ -441,6 +441,34 @@ describe('readPaymentRecoverySnapshot', () => {
     })).toBeNull()
   })
 
+  it('refuses a snapshot that is not bound to the current user', () => {
+    const snapshot = {
+      orderId: 1,
+      amount: 1,
+      qrCode: '',
+      expiresAt: '2099-01-01T00:10:00.000Z',
+      paymentType: 'airwallex',
+      payUrl: '/payment/airwallex?order_id=1',
+      outTradeNo: 'trade-1',
+      clientSecret: 'secret-from-user-a',
+      intentId: 'int_test',
+      currency: 'CNY',
+      countryCode: 'CN',
+      paymentEnv: 'demo',
+      payAmount: 1,
+      orderType: 'balance',
+      paymentMode: 'redirect',
+      resumeToken: 'resume-from-user-a',
+      createdAt: Date.UTC(2099, 0, 1),
+      userId: 11,
+    }
+
+    expect(readPaymentRecoverySnapshot(JSON.stringify(snapshot), { boundUserId: null })).toBeNull()
+    expect(readPaymentRecoverySnapshot(JSON.stringify(snapshot), { boundUserId: 22 })).toBeNull()
+    expect(readPaymentRecoverySnapshot(JSON.stringify({ ...snapshot, userId: undefined }), { boundUserId: 11 })).toBeNull()
+    expect(readPaymentRecoverySnapshot(JSON.stringify(snapshot), { boundUserId: 11 })?.clientSecret).toBe('secret-from-user-a')
+  })
+
   it('keeps backward compatibility with snapshots written before outTradeNo existed', () => {
     const restored = readPaymentRecoverySnapshot(JSON.stringify({
       orderId: 44,

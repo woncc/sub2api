@@ -374,6 +374,10 @@ func (h *AuthHandler) WeChatPaymentOAuthStart(c *gin.Context) {
 	wechatPaymentSetCookie(c, wechatPaymentOAuthScope, encodeCookieValue(scope), wechatOAuthCookieMaxAgeSec, secureCookie)
 
 	cfg.redirectURI = h.resolveWeChatPaymentOAuthCallbackURL(c.Request.Context(), c)
+	if strings.TrimSpace(cfg.redirectURI) == "" {
+		response.ErrorFrom(c, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "wechat oauth redirect url not configured"))
+		return
+	}
 	cfg.scope = scope
 	authURL, err := buildWeChatAuthorizeURL(cfg, state)
 	if err != nil {
@@ -1106,21 +1110,12 @@ func resolveWeChatOAuthAbsoluteURL(apiBaseURL string, c *gin.Context, callbackPa
 		}
 	}
 
-	if c == nil || c.Request == nil {
-		return ""
-	}
-	scheme := "http"
-	if isRequestHTTPS(c) {
-		scheme = "https"
-	}
-	host := strings.TrimSpace(c.Request.Host)
-	if forwardedHost := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); forwardedHost != "" {
-		host = forwardedHost
-	}
-	if host == "" {
-		return ""
-	}
-	return scheme + "://" + host + callbackPath
+	// Do not build redirect_uri from Host or X-Forwarded-Host. Those headers are
+	// client-controlled unless a trusted proxy rewrites them, and the code
+	// exchange does not send redirect_uri back to WeChat. Operators pin the
+	// callback with api_base_url (payment and login) or the WeChat redirect URL
+	// (login only).
+	return ""
 }
 
 func fetchWeChatOAuthIdentity(ctx context.Context, cfg wechatOAuthConfig, code string) (*wechatOAuthTokenResponse, *wechatOAuthUserInfoResponse, error) {

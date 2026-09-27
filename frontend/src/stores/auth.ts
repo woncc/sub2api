@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
+import { clearPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
 import type {
   User,
   LoginRequest,
@@ -297,6 +298,8 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function setAuthFromResponse(response: AuthResponse): void {
+    // A new principal must not resume the previous account's checkout secrets.
+    clearPaymentRecoverySnapshot(localStorage)
     // Store token and user
     token.value = response.access_token
 
@@ -476,6 +479,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(AUTH_USER_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
     localStorage.removeItem(TOKEN_EXPIRES_AT_KEY)
+    clearPaymentRecoverySnapshot(localStorage)
 
     if (options?.preservePendingAuthSession) {
       pendingAuthSession.value = getPersistedPendingAuthSession()
