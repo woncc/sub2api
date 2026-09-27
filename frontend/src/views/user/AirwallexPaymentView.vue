@@ -30,15 +30,18 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { useAuthStore } from '@/stores/auth'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   readPaymentRecoverySnapshot,
+  readStoredAuthUserId,
   type PaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 
 const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 const loading = ref(true)
 const errorMessage = ref('')
@@ -71,7 +74,10 @@ function restoreAirwallexSnapshot(): PaymentRecoverySnapshot | null {
   const resumeToken = queryString('resume_token')
   const snapshot = readPaymentRecoverySnapshot(
     window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
-    resumeToken ? { resumeToken } : {},
+    {
+      ...(resumeToken ? { resumeToken } : {}),
+      boundUserId: authStore.user?.id ?? readStoredAuthUserId(window.localStorage),
+    },
   )
 
   if (!snapshot || snapshot.paymentType !== 'airwallex') {

@@ -53,8 +53,15 @@ func NewImageResultUploader(storage ImageStorage, prefix string, maxDownloadByte
 	}
 }
 
+// defaultImageDownloadHTTPClient fetches upstream image URLs for platform
+// offload. It uses the same public-host dial policy as user object storage:
+// HTTPS only, no environment proxy, metadata hosts denied, and private,
+// loopback, link-local, CGNAT, and 0.0.0.0/8 addresses rejected at dial time
+// and again on redirect.
 func defaultImageDownloadHTTPClient() *http.Client {
-	return &http.Client{Timeout: 60 * time.Second}
+	client := NewUserOSSHTTPClient()
+	client.Timeout = 60 * time.Second
+	return client
 }
 
 // Rewrite 将 result（上游生图响应 JSON）里的每张图片转存到对象存储，

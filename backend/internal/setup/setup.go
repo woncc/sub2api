@@ -160,25 +160,36 @@ func skipSetupEnabled() bool {
 	}
 }
 
-// NeedsSetup checks if the system needs initial setup
-// Uses multiple checks to prevent attackers from forcing re-setup by deleting config
+// NeedsSetup checks if the system needs initial setup.
+// A config the runtime loader would read (CONFIG_FILE, DATA_DIR, /app/data,
+// the working directory, ./config, or /etc/sub2api) or the data-dir install
+// lock closes the wizard. Otherwise an anonymous POST /setup/install can
+// write a data-dir config.yaml that shadows a later loader path.
 func NeedsSetup() bool {
 	if skipSetupEnabled() {
 		logger.L().Debug("setup.needs_setup_bypassed", zap.String("reason", "skip_setup_enabled"))
 		return false
 	}
 
-	// Check 1: Config file must not exist
-	if _, err := os.Stat(GetConfigFilePath()); !os.IsNotExist(err) {
-		return false // Config exists, no setup needed
+	markers := append(config.LoaderConfigFiles(), GetInstallLockPath())
+	for _, path := range markers {
+		if configMarkerPresent(path) {
+			return false
+		}
 	}
-
-	// Check 2: Installation lock file (harder to bypass)
-	if _, err := os.Stat(GetInstallLockPath()); !os.IsNotExist(err) {
-		return false // Lock file exists, already installed
-	}
-
 	return true
+}
+
+// configMarkerPresent reports whether path exists or cannot be stat'd.
+// A permission error is treated as installed so the wizard does not open
+// against a config the process cannot prove is absent.
+func configMarkerPresent(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }
 
 func buildPostgresDSN(cfg *DatabaseConfig, dbName string) string {
@@ -499,6 +510,9 @@ func writeConfigFile(cfg *SetupConfig) error {
 			RequestsPerMinute int `yaml:"requests_per_minute"`
 			BurstSize         int `yaml:"burst_size"`
 		} `yaml:"rate_limit"`
+		Security struct {
+			TrustForwardedIPForAPIKeyACL bool `yaml:"trust_forwarded_ip_for_api_key_acl"`
+		} `yaml:"security"`
 		Timezone string `yaml:"timezone"`
 	}{
 		Server:   cfg.Server,
@@ -528,6 +542,13 @@ func writeConfigFile(cfg *SetupConfig) error {
 		}{
 			RequestsPerMinute: 60,
 			BurstSize:         10,
+		},
+		Security: struct {
+			TrustForwardedIPForAPIKeyACL bool `yaml:"trust_forwarded_ip_for_api_key_acl"`
+		}{
+			// Generated installs publish a listener. Keep forwarded-header
+			// trust off unless an operator later opts in behind a rewriting proxy.
+			TrustForwardedIPForAPIKeyACL: false,
 		},
 		Timezone: tz,
 	}

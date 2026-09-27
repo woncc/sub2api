@@ -105,11 +105,41 @@ func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	require.Equal(t, 64*1024, cfg.Server.MaxHeaderBytes)
 	require.Empty(t, cfg.Server.TrustedProxies)
 	require.False(t, cfg.Server.TrustedProxiesConfigured)
-	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
+	require.False(t, cfg.TrustForwardedIPForAPIKeyACL())
 	require.Equal(t, int64(32*1024*1024), cfg.Gateway.TextMaxBodySize)
 	require.True(t, cfg.APIKeyAuth.InvalidAbuse.Enabled)
 	require.Equal(t, 120, cfg.APIKeyAuth.InvalidAbuse.Threshold)
 	require.Equal(t, 16384, cfg.APIKeyAuth.InvalidAbuse.Capacity)
+}
+
+func TestLoadTrustForwardedIPCanBeEnabledExplicitly(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SECURITY_TRUST_FORWARDED_IP_FOR_API_KEY_ACL", "true")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
+}
+
+func TestLoaderConfigFilesFollowConfigFileAndSearchOrder(t *testing.T) {
+	t.Run("explicit file is the only candidate", func(t *testing.T) {
+		t.Setenv("CONFIG_FILE", "/tmp/explicit-sub2api.yaml")
+		t.Setenv("DATA_DIR", t.TempDir())
+		require.Equal(t, []string{"/tmp/explicit-sub2api.yaml"}, LoaderConfigFiles())
+	})
+
+	t.Run("search order includes data dir config and later loader paths", func(t *testing.T) {
+		t.Setenv("CONFIG_FILE", "")
+		dataDir := t.TempDir()
+		t.Setenv("DATA_DIR", dataDir)
+		require.Equal(t, []string{
+			filepath.Join(dataDir, "config.yaml"),
+			filepath.Join("/app/data", "config.yaml"),
+			filepath.Join(".", "config.yaml"),
+			filepath.Join("config", "config.yaml"),
+			filepath.Join("/etc/sub2api", "config.yaml"),
+		}, LoaderConfigFiles())
+	})
 }
 
 func TestNormalizeForwardedClientIPHeaders(t *testing.T) {

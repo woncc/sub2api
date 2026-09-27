@@ -65,6 +65,79 @@ func TestWeChatOAuthStartRedirectsAndSetsPendingCookies(t *testing.T) {
 	require.NotEmpty(t, findCookie(cookies, oauthPendingBrowserCookieName))
 }
 
+func TestResolveWeChatOAuthAbsoluteURLIgnoresForwardedHost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/wechat/payment/start", nil)
+	c.Request.Host = "api.example.com"
+	c.Request.Header.Set("X-Forwarded-Host", "attacker.example")
+	c.Request.Header.Set("X-Forwarded-Proto", "https")
+
+	require.Empty(t, resolveWeChatOAuthAbsoluteURL("", c, "/api/v1/auth/oauth/wechat/payment/callback"))
+	require.Empty(t, resolveWeChatOAuthAbsoluteURL("not a url", c, "/api/v1/auth/oauth/wechat/payment/callback"))
+	require.Equal(t,
+		"https://api.example.com/api/v1/auth/oauth/wechat/payment/callback",
+		resolveWeChatOAuthAbsoluteURL("https://api.example.com", c, "/api/v1/auth/oauth/wechat/payment/callback"),
+	)
+}
+
+func TestWeChatPaymentOAuthStartPinsRedirectURIToAPIBaseURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, client := newWeChatOAuthTestHandlerWithSettings(t, false, map[string]string{
+		service.SettingKeyWeChatConnectEnabled:   "true",
+		service.SettingKeyWeChatConnectMPEnabled: "true",
+		service.SettingKeyWeChatConnectAppID:     "wx-mp-app",
+		service.SettingKeyWeChatConnectAppSecret: "wx-mp-secret",
+		service.SettingKeyWeChatConnectMode:      "mp",
+		service.SettingKeyAPIBaseURL:             "https://api.example.com",
+	})
+	defer client.Close()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/wechat/payment/start?payment_type=wxpay", nil)
+	c.Request.Host = "api.example.com"
+	c.Request.Header.Set("X-Forwarded-Host", "attacker.example")
+	c.Request.Header.Set("X-Forwarded-Proto", "https")
+
+	handler.WeChatPaymentOAuthStart(c)
+
+	require.Equal(t, http.StatusFound, recorder.Code)
+	location := recorder.Header().Get("Location")
+	parsed, err := url.Parse(location)
+	require.NoError(t, err)
+	redirectURI, err := url.QueryUnescape(parsed.Query().Get("redirect_uri"))
+	require.NoError(t, err)
+	require.Equal(t, "https://api.example.com/api/v1/auth/oauth/wechat/payment/callback", redirectURI)
+	require.NotContains(t, redirectURI, "attacker.example")
+}
+
+func TestWeChatOAuthStartRejectsHeaderDerivedRedirectURI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler, client := newWeChatOAuthTestHandlerWithSettings(t, false, map[string]string{
+		service.SettingKeyWeChatConnectEnabled:     "true",
+		service.SettingKeyWeChatConnectOpenEnabled: "true",
+		service.SettingKeyWeChatConnectAppID:       "wx-open-app",
+		service.SettingKeyWeChatConnectAppSecret:   "wx-open-secret",
+		service.SettingKeyWeChatConnectMode:        "open",
+	})
+	defer client.Close()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/wechat/start?mode=open", nil)
+	c.Request.Host = "api.example.com"
+	c.Request.Header.Set("X-Forwarded-Host", "attacker.example")
+	c.Request.Header.Set("X-Forwarded-Proto", "https")
+
+	handler.WeChatOAuthStart(c)
+
+	require.NotEqual(t, http.StatusFound, recorder.Code)
+	require.NotContains(t, recorder.Header().Get("Location"), "attacker.example")
+	require.Contains(t, recorder.Body.String(), "OAUTH_CONFIG_INVALID")
+}
+
 func TestWeChatOAuthStart_AllowsOpenModeWhenBothCapabilitiesEnabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler, client := newWeChatOAuthTestHandlerWithSettings(t, false, map[string]string{

@@ -19,6 +19,9 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	if err := rejectDisallowedImageGenerationToolModel(c, account, body); err != nil {
+		return nil, err
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -1537,4 +1540,56 @@ func (s *OpenAIGatewayService) codexIdentityOverrideUA(account *Account) string 
 		return ""
 	}
 	return account.GetOpenAIUserAgent()
+}
+
+// rejectDisallowedImageGenerationToolModel stops a responses body whose
+// image_generation tool names a model outside the group allowlist. The
+// allowlist middleware only reads the top-level model. Grok drops this tool
+// before egress, so that platform is left to its own sanitizer.
+func rejectDisallowedImageGenerationToolModel(c *gin.Context, account *Account, body []byte) error {
+	if account != nil && account.Platform == PlatformGrok {
+		return nil
+	}
+	if c == nil {
+		return nil
+	}
+	group := apiKeyGroup(getAPIKeyFromContext(c))
+	if group == nil || !group.ModelAllowlistEnabled() {
+		return nil
+	}
+	for _, model := range imageGenerationToolModels(body) {
+		if group.ModelAllowlist.Allows(model) {
+			continue
+		}
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalModelConfiguration)
+		message := fmt.Sprintf("Model %q is not available for this group", model)
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{
+			"message": message,
+			"type":    "invalid_request_error",
+			"code":    "model_not_found",
+		}})
+		return fmt.Errorf("model %q is not available for this group", model)
+	}
+	return nil
+}
+
+func imageGenerationToolModels(body []byte) []string {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return nil
+	}
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return nil
+	}
+	var models []string
+	tools.ForEach(func(_, item gjson.Result) bool {
+		if openAIJSONString(item.Get("type")) != "image_generation" {
+			return true
+		}
+		if model := openAIJSONString(item.Get("model")); model != "" {
+			models = append(models, model)
+		}
+		return true
+	})
+	return models
 }

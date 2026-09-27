@@ -105,6 +105,7 @@ import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   clearPaymentRecoverySnapshot,
   readPaymentRecoverySnapshot,
+  readStoredAuthUserId,
 } from '@/components/payment/paymentFlow'
 import { usePaymentStore } from '@/stores/payment'
 import { useAuthStore } from '@/stores/auth'
@@ -267,9 +268,11 @@ function restoreRecoverySnapshot(context: {
     return null
   }
 
+  const boundUserId = authStore.user?.id ?? readStoredAuthUserId(window.localStorage)
   if (context.resumeToken) {
     return readPaymentRecoverySnapshot(rawSnapshot, {
       resumeToken: context.resumeToken,
+      boundUserId,
     })
   }
 
@@ -277,7 +280,7 @@ function restoreRecoverySnapshot(context: {
     return null
   }
 
-  const restored = readPaymentRecoverySnapshot(rawSnapshot)
+  const restored = readPaymentRecoverySnapshot(rawSnapshot, { boundUserId })
   if (!restored) {
     return null
   }

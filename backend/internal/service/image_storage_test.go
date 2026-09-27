@@ -80,7 +80,9 @@ func TestImageResultUploaderRewritesURL(t *testing.T) {
 	defer upstream.Close()
 
 	storage := &fakeImageStorage{}
-	uploader := NewImageResultUploader(storage, "images/", 0, nil)
+	// The platform default client refuses loopback. This test injects a client
+	// so the rewrite path can still be checked against a local fixture.
+	uploader := NewImageResultUploader(storage, "images/", 0, &http.Client{Timeout: 5 * time.Second})
 
 	result := json.RawMessage(`{"created":1,"data":[{"url":"` + upstream.URL + `/pic.png"}]}`)
 	out, err := uploader.Rewrite(context.Background(), "imgtask_xyz", result)
@@ -95,6 +97,45 @@ func TestImageResultUploaderRewritesURL(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(out, &parsed))
 	require.JSONEq(t, `"https://cdn.test/images/imgtask_xyz-0.png"`, string(parsed.Data[0]["url"]))
+}
+
+func TestDefaultImageDownloadClientRefusesPrivateURLAndRedirect(t *testing.T) {
+	var targetHits int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetHits++
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("not-an-image"))
+	}))
+	defer target.Close()
+
+	var redirectHits int
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectHits++
+		http.Redirect(w, r, target.URL+"/secret", http.StatusFound)
+	}))
+	defer redirector.Close()
+
+	storage := &fakeImageStorage{}
+	uploader := NewImageResultUploader(storage, "images/", 0, nil)
+
+	for _, rawURL := range []string{target.URL + "/pic.png", redirector.URL + "/hop"} {
+		result := json.RawMessage(`{"data":[{"url":"` + rawURL + `"}]}`)
+		_, err := uploader.Rewrite(context.Background(), "imgtask_private", result)
+		require.Error(t, err)
+	}
+	require.Zero(t, targetHits)
+	require.Zero(t, redirectHits)
+	require.Empty(t, storage.saved)
+
+	client := defaultImageDownloadHTTPClient()
+	redirectReq, err := http.NewRequest(http.MethodGet, "https://127.0.0.1/latest/meta-data", nil)
+	require.NoError(t, err)
+	require.Error(t, client.CheckRedirect(redirectReq, []*http.Request{redirectReq}))
+
+	metadataReq, err := http.NewRequest(http.MethodGet, "https://metadata.google.internal/computeMetadata/v1/", nil)
+	require.NoError(t, err)
+	_, err = client.Transport.RoundTrip(metadataReq)
+	require.Error(t, err)
 }
 
 func TestImageResultUploaderRewritesImageDataURLWithoutHTTP(t *testing.T) {

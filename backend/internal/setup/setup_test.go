@@ -229,6 +229,60 @@ func TestWriteConfigFileIncludesRedisUsername(t *testing.T) {
 	if !strings.Contains(string(data), "username: app-user") {
 		t.Fatalf("config missing Redis username, got:\n%s", string(data))
 	}
+	if !strings.Contains(string(data), "trust_forwarded_ip_for_api_key_acl: false") {
+		t.Fatalf("config missing fail-closed forwarded IP default, got:\n%s", string(data))
+	}
+}
+
+func TestNeedsSetupTreatsLoaderConfigPathsAsInstalled(t *testing.T) {
+	t.Setenv("SKIP_SETUP", "")
+	t.Setenv("AUTO_SETUP", "")
+
+	t.Run("config directory file closes the wizard", func(t *testing.T) {
+		work := t.TempDir()
+		t.Setenv("DATA_DIR", "")
+		t.Setenv("CONFIG_FILE", "")
+		requireChdir(t, work)
+		if err := os.MkdirAll(filepath.Join(work, "config"), 0o755); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(work, "config", "config.yaml"), []byte("server:\n  host: config-dir\n"), 0o600); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+		if NeedsSetup() {
+			t.Fatal("NeedsSetup() = true, want false when ./config/config.yaml exists")
+		}
+		if got := GetConfigFilePath(); got != filepath.Join(work, "config.yaml") && got != "config.yaml" && !strings.HasSuffix(got, "/config.yaml") {
+			t.Fatalf("GetConfigFilePath() = %s, want data-dir config.yaml", got)
+		}
+	})
+
+	t.Run("explicit CONFIG_FILE closes the wizard", func(t *testing.T) {
+		work := t.TempDir()
+		explicit := filepath.Join(work, "explicit.yaml")
+		if err := os.WriteFile(explicit, []byte("database:\n  host: explicit-file-db\n"), 0o600); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+		t.Setenv("DATA_DIR", filepath.Join(work, "data"))
+		t.Setenv("CONFIG_FILE", explicit)
+		if NeedsSetup() {
+			t.Fatal("NeedsSetup() = true, want false when CONFIG_FILE exists")
+		}
+	})
+}
+
+func requireChdir(t *testing.T, dir string) {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", dir, err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
 }
 
 func TestDatabaseConnectionDSNsUseConfiguredTargetAndLegacyBootstrapDatabase(t *testing.T) {

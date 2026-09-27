@@ -3792,6 +3792,20 @@ func blockedModelAllowlistCandidate(group *service.Group, candidates []string) s
 	return ""
 }
 
+// rejectBlockedGroupModel writes the group-allowlist 404 when model is not
+// permitted. A blank model is not rejected here; callers must pass the name
+// they will actually send upstream, including handler defaults.
+func rejectBlockedGroupModel(c *gin.Context, group *service.Group, model string) bool {
+	blocked := blockedModelAllowlistCandidate(group, []string{strings.TrimSpace(model)})
+	if blocked == "" {
+		return false
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+	middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+	middleware2.OpenAIErrorWriter(c, http.StatusNotFound, fmt.Sprintf("Model %q is not available for this group", blocked))
+	return true
+}
+
 func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason string) {
 	if conn == nil {
 		return

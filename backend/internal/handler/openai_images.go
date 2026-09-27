@@ -99,6 +99,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
+	// applyOpenAIImagesDefaults fills a blank model with gpt-image-2 before this
+	// point. The group allowlist middleware only saw the omitted client model.
+	if rejectBlockedGroupModel(c, apiKey.Group, requestModel) {
+		return
+	}
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, parsed.ModerationBody()); decision != nil && !decision.AllowNextStage {
 		h.openAISecurityAuditError(c, decision)
 		return

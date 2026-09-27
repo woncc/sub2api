@@ -272,8 +272,11 @@ func (r *redeemCodeRepository) BatchUpdate(ctx context.Context, ids []int64, fie
 }
 
 func (r *redeemCodeRepository) batchUpdate(ctx context.Context, client *dbent.Client, ids []int64, fields service.RedeemCodeBatchUpdateFields) (int64, error) {
+	// Lock the rows so a redeem that commits between the used-status read and
+	// the status write cannot be overwritten back to unused.
 	existing, err := client.RedeemCode.Query().
 		Where(redeemcode.IDIn(ids...)).
+		ForUpdate().
 		All(ctx)
 	if err != nil {
 		return 0, err
@@ -290,6 +293,11 @@ func (r *redeemCodeRepository) batchUpdate(ctx context.Context, client *dbent.Cl
 	}
 
 	up := client.RedeemCode.Update().Where(redeemcode.IDIn(ids...))
+	if fields.Status != nil {
+		// A used code is consumed. The status predicate keeps a concurrent
+		// redeem from being resurrected even if the locked read was skipped.
+		up.Where(redeemcode.StatusNEQ(service.StatusUsed))
+	}
 	if fields.Status != nil {
 		up.SetStatus(*fields.Status)
 	}
