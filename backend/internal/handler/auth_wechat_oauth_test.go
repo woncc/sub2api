@@ -121,6 +121,9 @@ func TestWeChatOAuthStartRejectsHeaderDerivedRedirectURI(t *testing.T) {
 		service.SettingKeyWeChatConnectAppID:       "wx-open-app",
 		service.SettingKeyWeChatConnectAppSecret:   "wx-open-secret",
 		service.SettingKeyWeChatConnectMode:        "open",
+		// The shared fixture stores a callback URL. Clear it so start can only
+		// succeed by inventing redirect_uri from the request host.
+		service.SettingKeyWeChatConnectRedirectURL: "",
 	})
 	defer client.Close()
 
