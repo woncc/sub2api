@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -374,6 +375,75 @@ func TestBackupService_S3ConfigKeepExistingSecret(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "original-secret", internal.SecretAccessKey)
 	require.Equal(t, "AKID-NEW", internal.AccessKeyID)
+}
+
+func TestBackupService_S3ConfigSecretWhitespaceAndLoadFailure(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	ctx := context.Background()
+
+	saved, err := svc.UpdateS3Config(ctx, BackupS3Config{
+		Bucket:          "my-bucket",
+		AccessKeyID:     "AKID",
+		SecretAccessKey: "  original-secret  ",
+	})
+	require.NoError(t, err)
+	require.True(t, saved.SecretConfigured)
+	require.Empty(t, saved.SecretAccessKey)
+
+	raw, err := repo.GetValue(ctx, settingKeyBackupS3Config)
+	require.NoError(t, err)
+	require.Contains(t, raw, `"secret_access_key":"ENC:original-secret"`)
+	require.NotContains(t, raw, "secret_configured")
+	body, err := json.Marshal(saved)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"secret_configured":true`)
+	require.NotContains(t, string(body), "original-secret")
+
+	// A whitespace-only secret is empty, so the stored secret is kept.
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{
+		Bucket:          "my-bucket",
+		AccessKeyID:     "AK-ONLY",
+		SecretAccessKey: "   ",
+	})
+	require.NoError(t, err)
+	got, err := svc.GetS3Config(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "AK-ONLY", got.AccessKeyID)
+	require.True(t, got.SecretConfigured)
+	internal, err := svc.loadS3Config(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "original-secret", internal.SecretAccessKey)
+
+	repo.getValueErr = errors.New("db down")
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{
+		Bucket:      "wiped-bucket",
+		AccessKeyID: "AK-WIPED",
+	})
+	require.Error(t, err)
+	_, err = svc.TestS3Connection(ctx, BackupS3Config{
+		Bucket:      "my-bucket",
+		AccessKeyID: "AK-ONLY",
+	})
+	require.Error(t, err)
+
+	repo.getValueErr = nil
+	internal, err = svc.loadS3Config(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "my-bucket", internal.Bucket)
+	require.Equal(t, "AK-ONLY", internal.AccessKeyID)
+	require.Equal(t, "original-secret", internal.SecretAccessKey)
+
+	// A missing row is "never configured", not a failed read.
+	emptyRepo := newMockSettingRepo()
+	emptyRepo.getValueErr = ErrSettingNotFound
+	emptySvc := newTestBackupService(emptyRepo, &mockDumper{}, newMockObjectStore())
+	created, err := emptySvc.UpdateS3Config(ctx, BackupS3Config{
+		Bucket:      "fresh",
+		AccessKeyID: "AK",
+	})
+	require.NoError(t, err)
+	require.False(t, created.SecretConfigured)
 }
 
 // 一次不带 secret 的保存（表单第二次提交、改端点、存定时配置）继承的是 loadS3Config
@@ -1438,6 +1508,10 @@ func TestBackupService_S3ConfigProviderAndResolved(t *testing.T) {
 	require.ErrorContains(t, err, "bucket must look like {name}-{appid}")
 	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Provider: StorageProviderAliyunOSS, Bucket: "example", AccessKeyID: "ak", SecretAccessKey: "sk"})
 	require.ErrorContains(t, err, "region is required")
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Provider: StorageProviderAliyunOSS, Region: "auto", Bucket: "example", AccessKeyID: "ak", SecretAccessKey: "sk"})
+	require.ErrorContains(t, err, "region is required")
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Provider: StorageProviderQiniu, Region: "auto", Bucket: "space", AccessKeyID: "ak", SecretAccessKey: "sk"})
+	require.ErrorContains(t, err, "region is required")
 }
 
 func TestBackupService_TestS3ConnectionKeepsSecretAndResolves(t *testing.T) {
@@ -1473,6 +1547,18 @@ func TestBackupService_TestS3ConnectionKeepsSecretAndResolves(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "stored-secret", seen.SecretAccessKey)
 	require.Empty(t, seen.Endpoint, "test must not persist the derived endpoint onto the config passed through")
+	require.Equal(t, 1, store.headCalls)
+
+	store.headCalls = 0
+	resolved, err = svc.TestS3Connection(ctx, BackupS3Config{
+		Provider:        StorageProviderQiniu,
+		Region:          "cn-east-1",
+		Bucket:          "space",
+		AccessKeyID:     "ak",
+		SecretAccessKey: "  \t ",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "stored-secret", seen.SecretAccessKey)
 	require.Equal(t, 1, store.headCalls)
 	require.Equal(t, "https://s3.cn-east-1.qiniucs.com", resolved.Endpoint)
 	require.Equal(t, "cn-east-1", resolved.Region)

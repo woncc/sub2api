@@ -434,7 +434,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
@@ -611,6 +611,7 @@ const imageStorageForm = ref<ImageStorageConfig>({
 const imageResolved = ref<StorageEndpointResolved | null>(null)
 const imageResolvedContext = ref<ResolvedContext | null>(null)
 const imageStorageSecretConfigured = ref(false)
+const imageOwnSecretConfigured = ref(false)
 const savingImageStorage = ref(false)
 const testingImageStorage = ref(false)
 const imageEndpointPlaceholder = computed(() => endpointPlaceholder(
@@ -633,6 +634,14 @@ const imageEffectiveProvider = computed(() =>
     ? (s3Form.value.provider || 's3')
     : (imageStorageForm.value.provider || 's3'),
 )
+
+// While reuse is on, secret_configured follows the backup secret and the secret
+// field is hidden. Unchecking reuse must show the image row's own secret.
+watch(() => imageStorageForm.value.reuse_backup_s3, (reuse) => {
+  if (!reuse) {
+    imageStorageSecretConfigured.value = imageOwnSecretConfigured.value
+  }
+})
 
 function onBackupProviderChange(event: Event) {
   const next = normalizeStorageProvider((event.target as HTMLSelectElement).value)
@@ -870,7 +879,7 @@ async function loadS3Config() {
       prefix: cfg.prefix || 'backups/',
       force_path_style: Boolean(cfg.force_path_style),
     }
-    s3SecretConfigured.value = Boolean(cfg.access_key_id)
+    s3SecretConfigured.value = cfg.secret_configured === true
     rememberResolved(s3Resolved, s3ResolvedContext, provider, region, bucket, cfg.resolved)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
@@ -896,13 +905,18 @@ async function saveS3Config() {
 
 async function loadImageStorageConfig() {
   try {
-    const { config, secret_configured } = await adminAPI.backup.getImageStorageConfig()
+    const { config, secret_configured, own_secret_configured } = await adminAPI.backup.getImageStorageConfig()
+    const reuseBackup = Boolean(config.reuse_backup_s3)
+    const ownConfigured = typeof own_secret_configured === 'boolean'
+      ? own_secret_configured
+      : !reuseBackup && Boolean(secret_configured)
+    imageOwnSecretConfigured.value = ownConfigured
     const provider = normalizeStorageProvider(config.provider)
     const region = displayRegion(provider, config.region)
     const bucket = config.bucket || ''
     imageStorageForm.value = {
       enabled: Boolean(config.enabled),
-      reuse_backup_s3: Boolean(config.reuse_backup_s3),
+      reuse_backup_s3: reuseBackup,
       bucket,
       prefix: config.prefix || 'images/',
       public_base_url: config.public_base_url || '',
@@ -915,7 +929,7 @@ async function loadImageStorageConfig() {
       secret_access_key: '',
       force_path_style: Boolean(config.force_path_style),
     }
-    imageStorageSecretConfigured.value = secret_configured
+    imageStorageSecretConfigured.value = reuseBackup ? Boolean(secret_configured) : ownConfigured
     rememberResolved(imageResolved, imageResolvedContext, provider, region, bucket, config.resolved)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))

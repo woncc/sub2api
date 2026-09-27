@@ -193,6 +193,43 @@ func TestResolveStorageEndpoint(t *testing.T) {
 			wantRegion:     "cn-east-1",
 			wantPathStyle:  true,
 		},
+		{
+			name:          "s3 keeps the auto region sentinel",
+			provider:      "s3",
+			region:        " auto ",
+			endpoint:      "https://acct.r2.cloudflarestorage.com",
+			wantEndpoint:  "https://acct.r2.cloudflarestorage.com",
+			wantRegion:    "auto",
+			wantPathStyle: false,
+		},
+		{
+			name:     "aliyun rejects the s3 auto sentinel",
+			provider: "aliyun_oss",
+			region:   " auto ",
+			bucket:   "example",
+			wantErr:  "region is required",
+		},
+		{
+			name:     "aliyun auto sentinel is rejected even with a custom endpoint",
+			provider: "aliyun_oss",
+			region:   "auto",
+			endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+			wantErr:  "region is required",
+		},
+		{
+			name:     "tencent rejects the s3 auto sentinel",
+			provider: "tencent_cos",
+			region:   "auto",
+			bucket:   "example-1250000000",
+			wantErr:  "region is required",
+		},
+		{
+			name:     "qiniu rejects the s3 auto sentinel",
+			provider: "qiniu",
+			region:   "auto",
+			bucket:   "space",
+			wantErr:  "region is required",
+		},
 	}
 
 	for _, tt := range tests {

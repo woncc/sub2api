@@ -153,22 +153,43 @@ func (s *ImageStorageSettingService) Get(ctx context.Context) (*ImageStorageSett
 		return nil, err
 	}
 	if settings == nil {
-		settings = settingsFromConfig(s.fallback)
+		fallback := s.fallback
+		if err := prepareFileImageStorage(&fallback); err != nil {
+			return nil, err
+		}
+		settings = settingsFromConfig(fallback)
 	}
 	return s.present(ctx, settings)
 }
 
 // SecretConfigured 供前端展示"已配置"占位符。
+// 复用备份时反映备份密钥；取消复用后应改看 OwnSecretConfigured。
 func (s *ImageStorageSettingService) SecretConfigured(ctx context.Context) bool {
 	settings, err := s.load(ctx)
-	if err != nil || settings == nil {
-		return s.fallback.SecretAccessKey != ""
+	if err != nil {
+		return false
+	}
+	if settings == nil {
+		return strings.TrimSpace(s.fallback.SecretAccessKey) != ""
 	}
 	if settings.ReuseBackupS3 {
 		cfg, err := s.backupCredentials(ctx)
-		return err == nil && cfg != nil && cfg.SecretAccessKey != ""
+		return err == nil && cfg != nil && strings.TrimSpace(cfg.SecretAccessKey) != ""
 	}
-	return settings.SecretAccessKey != ""
+	return strings.TrimSpace(settings.SecretAccessKey) != ""
+}
+
+// OwnSecretConfigured reports whether the image-storage row itself has a secret.
+// Reuse mode stores no image secret, so this stays false even when the backup secret exists.
+func (s *ImageStorageSettingService) OwnSecretConfigured(ctx context.Context) bool {
+	settings, err := s.load(ctx)
+	if err != nil {
+		return false
+	}
+	if settings == nil {
+		return strings.TrimSpace(s.fallback.SecretAccessKey) != ""
+	}
+	return strings.TrimSpace(settings.SecretAccessKey) != ""
 }
 
 // Update 保存设置并立即生效。SecretAccessKey 留空表示沿用已保存的值。
@@ -188,7 +209,11 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 		}
 		in.Provider = provider
 		if in.SecretAccessKey == "" {
-			if old, err := s.load(ctx); err == nil && old != nil {
+			old, err := s.load(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if old != nil {
 				in.SecretAccessKey = old.SecretAccessKey
 			}
 		} else {
@@ -232,7 +257,10 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	normalizeImageStorageSettings(&in)
 	if !in.ReuseBackupS3 && in.SecretAccessKey == "" {
 		old, err := s.load(ctx)
-		if err == nil && old != nil {
+		if err != nil {
+			return nil, err
+		}
+		if old != nil {
 			in.SecretAccessKey = old.SecretAccessKey
 		}
 	}
@@ -264,6 +292,24 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	return &resolved, nil
 }
 
+// prepareFileImageStorage normalizes the config.yaml / environment fallback.
+// region "auto" is the s3 example sentinel. The admin UI clears it on provider
+// change; file and env config must not derive a non-s3 endpoint from it.
+func prepareFileImageStorage(cfg *config.ImageStorageConfig) error {
+	cfg.Provider = strings.TrimSpace(cfg.Provider)
+	if cfg.Provider == "" {
+		cfg.Provider = StorageProviderS3
+	}
+	cfg.Region = strings.TrimSpace(cfg.Region)
+	switch cfg.Provider {
+	case StorageProviderAliyunOSS, StorageProviderTencentCOS, StorageProviderQiniu:
+		if cfg.Region == "auto" {
+			return invalidStorageConfig(errStorageRegionRequired)
+		}
+	}
+	return nil
+}
+
 // effectiveConfig 把后台设置（或 config.yaml 回落）解析成运行时配置。
 func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*config.ImageStorageConfig, error) {
 	settings, err := s.load(ctx)
@@ -272,8 +318,8 @@ func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*conf
 	}
 	if settings == nil {
 		fallback := s.fallback
-		if strings.TrimSpace(fallback.Provider) == "" {
-			fallback.Provider = StorageProviderS3
+		if err := prepareFileImageStorage(&fallback); err != nil {
+			return nil, err
 		}
 		return &fallback, nil
 	}
@@ -342,6 +388,9 @@ func (s *ImageStorageSettingService) load(ctx context.Context) (*ImageStorageSet
 		return nil, nil //nolint:nilnil // no repository means no stored settings
 	}
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyImageStorageConfig)
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return nil, fmt.Errorf("load image storage settings: %w", err)
+	}
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return nil, nil //nolint:nilnil // never configured is a valid state
 	}

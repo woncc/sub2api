@@ -19,6 +19,8 @@ export interface BackupS3Config {
   prefix: string
   force_path_style: boolean
   resolved?: StorageEndpointResolved
+  /** True when a secret is stored. Access key id alone does not imply this. */
+  secret_configured?: boolean
 }
 
 export interface BackupScheduleConfig {
@@ -129,7 +131,10 @@ export interface ImageStorageConfig {
 
 export interface ImageStorageConfigResponse {
   config: ImageStorageConfig
+  /** Effective secret: the backup secret while reuse is on, otherwise the image row. */
   secret_configured: boolean
+  /** Secret stored on the image-storage row itself. False while reuse cleared it. */
+  own_secret_configured?: boolean
 }
 
 export async function getImageStorageConfig(): Promise<ImageStorageConfigResponse> {

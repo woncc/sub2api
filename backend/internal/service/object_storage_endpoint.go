@@ -47,6 +47,12 @@ func ResolveStorageEndpoint(provider, region, bucket, endpoint string, forcePath
 	region = strings.TrimSpace(region)
 	bucket = strings.TrimSpace(bucket)
 	endpoint = strings.TrimSpace(endpoint)
+	// "auto" is the s3/R2 sentinel and the config.yaml example default.
+	// The admin UI clears it when the provider changes. Non-s3 providers must
+	// not derive an endpoint from it (oss-auto, cos.auto, s3.auto, …).
+	if provider != StorageProviderS3 && region == "auto" {
+		region = ""
+	}
 
 	switch provider {
 	case StorageProviderS3:
