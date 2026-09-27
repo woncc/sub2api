@@ -251,4 +251,147 @@ func TestImageStorageSettingsFallBackToConfigFile(t *testing.T) {
 	require.True(t, fetched.Enabled)
 	require.Equal(t, "yaml-bucket", fetched.Bucket)
 	require.Empty(t, fetched.SecretAccessKey)
+	require.Equal(t, StorageProviderS3, fetched.Provider)
+	require.NotNil(t, fetched.Resolved)
+	require.Equal(t, "https://acct.r2.cloudflarestorage.com", fetched.Resolved.Endpoint)
+}
+
+func TestImageStorageSettingsReuseDoesNotPersistProviderOrSecret(t *testing.T) {
+	svc, repo, built := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	seedBackupS3(t, repo, BackupS3Config{
+		Provider: StorageProviderAliyunOSS, Region: "oss-cn-hangzhou",
+		Bucket: "backup-bucket", AccessKeyID: "backup-ak", SecretAccessKey: "backup-sk",
+		Prefix: "backups/", ForcePathStyle: true,
+	})
+
+	saved, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, ReuseBackupS3: true, Bucket: "",
+		Provider: StorageProviderQiniu, Endpoint: "https://image.example", Region: "cn-east-1",
+		AccessKeyID: "image-ak", SecretAccessKey: "image-sk", ForcePathStyle: true,
+		Resolved: &StorageResolvedEndpoint{Endpoint: "https://evil.example"},
+	})
+	require.NoError(t, err)
+	require.Empty(t, saved.SecretAccessKey)
+	require.Empty(t, saved.Endpoint)
+	require.Empty(t, saved.AccessKeyID)
+	require.Equal(t, StorageProviderAliyunOSS, saved.Provider)
+	require.Equal(t, "https://s3.oss-cn-hangzhou.aliyuncs.com", saved.Resolved.Endpoint)
+	require.Equal(t, "cn-hangzhou", saved.Resolved.Region)
+	require.False(t, saved.Resolved.ForcePathStyle)
+
+	raw, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	require.NotContains(t, raw, "qiniu")
+	require.NotContains(t, raw, "aliyun_oss")
+	require.NotContains(t, raw, "image-sk")
+	require.NotContains(t, raw, "backup-sk")
+	require.NotContains(t, raw, "image-ak")
+	require.NotContains(t, raw, "backup-ak")
+	require.NotContains(t, raw, "resolved")
+	require.NotContains(t, raw, "s3.oss-cn-hangzhou")
+	require.NotContains(t, raw, "evil.example")
+
+	_, enabled := svc.resolve()
+	require.True(t, enabled)
+	require.Equal(t, StorageProviderAliyunOSS, (*built)[0].Provider)
+	require.Empty(t, (*built)[0].Endpoint)
+	require.Equal(t, "oss-cn-hangzhou", (*built)[0].Region)
+	require.Equal(t, "backup-sk", (*built)[0].SecretAccessKey)
+	require.True(t, (*built)[0].ForcePathStyle)
+	require.Equal(t, "backup-bucket", (*built)[0].Bucket)
+}
+
+func TestImageStorageSettingsOwnProviderResolvedIsNotStored(t *testing.T) {
+	svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+
+	saved, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Provider: StorageProviderTencentCOS, Region: "ap-guangzhou",
+		Bucket: "example-1250000000", AccessKeyID: "ak", SecretAccessKey: "super-secret",
+		ForcePathStyle: true,
+	})
+	require.NoError(t, err)
+	require.Empty(t, saved.SecretAccessKey)
+	require.Empty(t, saved.Endpoint)
+	require.Equal(t, StorageProviderTencentCOS, saved.Provider)
+	require.Equal(t, "https://cos.ap-guangzhou.myqcloud.com", saved.Resolved.Endpoint)
+	require.Equal(t, "ap-guangzhou", saved.Resolved.Region)
+	require.False(t, saved.Resolved.ForcePathStyle)
+	require.True(t, saved.ForcePathStyle)
+
+	raw, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	require.Contains(t, raw, `"provider":"tencent_cos"`)
+	require.NotContains(t, raw, "myqcloud.com")
+	require.NotContains(t, raw, "resolved")
+	require.NotContains(t, raw, `"secret_access_key":"super-secret"`)
+	require.Contains(t, raw, `"secret_access_key":"enc:super-secret"`)
+
+	_, err = svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Provider: StorageProviderAliyunOSS, Bucket: "images", AccessKeyID: "ak", SecretAccessKey: "sk",
+	})
+	require.ErrorContains(t, err, "region is required")
+	_, err = svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Provider: "minio", Region: "auto", Bucket: "images", AccessKeyID: "ak", SecretAccessKey: "sk",
+	})
+	require.ErrorContains(t, err, "unknown storage provider")
+}
+
+type headRecordingStorage struct {
+	heads int
+	saves int
+}
+
+func (s *headRecordingStorage) Save(_ context.Context, key, _ string, _ []byte) (string, error) {
+	s.saves++
+	return "https://cdn.example.com/" + key, nil
+}
+
+func (s *headRecordingStorage) HeadBucket(context.Context) error {
+	s.heads++
+	return nil
+}
+
+func TestImageStorageTestConnectionHeadBucketKeepsSecret(t *testing.T) {
+	repo := newStubSettingRepo()
+	encryptor := reversibleEncryptor{}
+	backup := NewBackupService(repo, &config.Config{
+		Totp: config.TotpConfig{EncryptionKeyConfigured: true},
+	}, encryptor, nil, nil)
+	store := &headRecordingStorage{}
+	var built []config.ImageStorageConfig
+	factory := func(_ context.Context, cfg *config.ImageStorageConfig) (ImageStorage, error) {
+		built = append(built, *cfg)
+		return store, nil
+	}
+	svc := NewImageStorageSettingService(repo, encryptor, backup, factory, config.ImageStorageConfig{})
+	ctx := context.Background()
+
+	_, err := svc.Update(ctx, ImageStorageSettings{
+		Enabled: true, Provider: StorageProviderQiniu, Region: "cn-north-1",
+		Bucket: "space", AccessKeyID: "ak", SecretAccessKey: "kept-secret",
+	})
+	require.NoError(t, err)
+
+	err = svc.TestConnection(ctx, ImageStorageSettings{
+		Enabled: true, Provider: StorageProviderQiniu, Region: "cn-north-1",
+		Bucket: "space", AccessKeyID: "ak",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, store.heads)
+	require.Zero(t, store.saves)
+	require.Equal(t, "kept-secret", built[len(built)-1].SecretAccessKey)
+	require.Empty(t, built[len(built)-1].Endpoint)
+
+	err = svc.TestConnection(ctx, ImageStorageSettings{
+		Enabled: true, Provider: StorageProviderTencentCOS, Region: "ap-guangzhou",
+		Bucket: "not-an-appid", AccessKeyID: "ak", SecretAccessKey: "kept-secret",
+	})
+	require.ErrorContains(t, err, "bucket must look like {name}-{appid}")
+	require.Equal(t, 1, store.heads)
+
+	err = svc.TestConnection(ctx, ImageStorageSettings{Enabled: true, Bucket: "only-bucket"})
+	require.ErrorIs(t, err, ErrImageStorageIncomplete)
+	require.Equal(t, 1, store.heads)
 }

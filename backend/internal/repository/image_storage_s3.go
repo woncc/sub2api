@@ -26,13 +26,11 @@ var _ service.ImageStorage = (*S3ImageStorage)(nil)
 
 // NewS3ImageStorage 依据配置构造 S3 图片存储（调用方应先确认 cfg.Active()）。
 func NewS3ImageStorage(ctx context.Context, cfg *config.ImageStorageConfig) (*S3ImageStorage, error) {
-	client, err := newS3Client(ctx, s3ClientParams{
-		Endpoint:        cfg.Endpoint,
-		Region:          cfg.Region,
-		AccessKeyID:     cfg.AccessKeyID,
-		SecretAccessKey: cfg.SecretAccessKey,
-		ForcePathStyle:  cfg.ForcePathStyle,
-	})
+	params, err := resolvedClientParams(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.AccessKeyID, cfg.SecretAccessKey, cfg.ForcePathStyle)
+	if err != nil {
+		return nil, err
+	}
+	client, err := newS3Client(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +42,7 @@ func NewS3ImageStorage(ctx context.Context, cfg *config.ImageStorageConfig) (*S3
 
 	return &S3ImageStorage{
 		client:        client,
-		bucket:        cfg.Bucket,
+		bucket:        strings.TrimSpace(cfg.Bucket),
 		publicBaseURL: strings.TrimRight(cfg.PublicBaseURL, "/"),
 		presignExpiry: expiry,
 	}, nil
@@ -77,4 +75,18 @@ func (s *S3ImageStorage) Save(ctx context.Context, key, contentType string, data
 		return "", fmt.Errorf("presign url: %w", err)
 	}
 	return result.URL, nil
+}
+
+// HeadBucket checks that the bucket exists and the credentials can see it.
+// Image connection tests call this and do not write an object.
+func (s *S3ImageStorage) HeadBucket(ctx context.Context) error {
+	finish := servertiming.ObserveDependency(ctx, "s3")
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: &s.bucket,
+	})
+	finish()
+	if err != nil {
+		return fmt.Errorf("S3 HeadBucket failed: %w", err)
+	}
+	return nil
 }

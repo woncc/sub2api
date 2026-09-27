@@ -174,6 +174,7 @@ type mockObjectStore struct {
 	uploadFileCalls  int
 	deletedKeys      []string
 	failDeleteKeys   map[string]error
+	headCalls        int
 }
 
 type cancelingUploadFailureStore struct {
@@ -268,6 +269,9 @@ func (m *mockObjectStore) PresignURL(_ context.Context, key string, _ time.Durat
 }
 
 func (m *mockObjectStore) HeadBucket(_ context.Context) error {
+	m.mu.Lock()
+	m.headCalls++
+	m.mu.Unlock()
 	return nil
 }
 
@@ -1367,4 +1371,116 @@ func TestBackupService_StartRestore_SplitParts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "completed", final.RestoreStatus)
 	require.Equal(t, dumpContent, dumper.restored)
+}
+
+func TestBackupService_S3ConfigProviderAndResolved(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc := newTestBackupService(repo, &mockDumper{}, newMockObjectStore())
+	ctx := context.Background()
+
+	legacy := `{"endpoint":"https://acct.r2.cloudflarestorage.com","region":"","bucket":"legacy","access_key_id":"AKID","secret_access_key":"ENC:legacy-secret","prefix":"backups/","force_path_style":true}`
+	require.NoError(t, repo.Set(ctx, settingKeyBackupS3Config, legacy))
+
+	got, err := svc.GetS3Config(ctx)
+	require.NoError(t, err)
+	require.Equal(t, StorageProviderS3, got.Provider)
+	require.Empty(t, got.SecretAccessKey)
+	require.Equal(t, "https://acct.r2.cloudflarestorage.com", got.Endpoint)
+	require.NotNil(t, got.Resolved)
+	require.Equal(t, "https://acct.r2.cloudflarestorage.com", got.Resolved.Endpoint)
+	require.Empty(t, got.Resolved.Region)
+	require.True(t, got.Resolved.ForcePathStyle)
+	raw, _ := repo.GetValue(ctx, settingKeyBackupS3Config)
+	require.Equal(t, legacy, raw, "GET must not rewrite stored settings")
+	require.NotContains(t, raw, "resolved")
+
+	saved, err := svc.UpdateS3Config(ctx, BackupS3Config{
+		Provider:        " aliyun_oss ",
+		Region:          " oss-cn-hangzhou ",
+		Bucket:          " example ",
+		AccessKeyID:     "AK",
+		SecretAccessKey: "plain-secret",
+		Prefix:          "backups/",
+		ForcePathStyle:  true,
+		Resolved:        &StorageResolvedEndpoint{Endpoint: "https://evil.example"},
+	})
+	require.NoError(t, err)
+	require.Empty(t, saved.SecretAccessKey)
+	require.Equal(t, StorageProviderAliyunOSS, saved.Provider)
+	require.Empty(t, saved.Endpoint)
+	require.Equal(t, "oss-cn-hangzhou", saved.Region)
+	require.True(t, saved.ForcePathStyle)
+	require.Equal(t, "https://s3.oss-cn-hangzhou.aliyuncs.com", saved.Resolved.Endpoint)
+	require.Equal(t, "cn-hangzhou", saved.Resolved.Region)
+	require.False(t, saved.Resolved.ForcePathStyle)
+
+	raw, _ = repo.GetValue(ctx, settingKeyBackupS3Config)
+	require.NotContains(t, raw, "resolved")
+	require.NotContains(t, raw, "https://s3.oss-cn-hangzhou.aliyuncs.com")
+	require.NotContains(t, raw, "evil.example")
+	require.NotContains(t, raw, `"secret_access_key":"plain-secret"`)
+	require.Contains(t, raw, `"provider":"aliyun_oss"`)
+	require.Contains(t, raw, `"secret_access_key":"ENC:plain-secret"`)
+
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Provider: "minio", Bucket: "b", AccessKeyID: "ak", SecretAccessKey: "sk"})
+	require.ErrorContains(t, err, "unknown storage provider")
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Provider: StorageProviderTencentCOS, Region: "ap-guangzhou", Bucket: "example", AccessKeyID: "ak", SecretAccessKey: "sk"})
+	require.ErrorContains(t, err, "bucket must look like {name}-{appid}")
+	_, err = svc.UpdateS3Config(ctx, BackupS3Config{Provider: StorageProviderAliyunOSS, Bucket: "example", AccessKeyID: "ak", SecretAccessKey: "sk"})
+	require.ErrorContains(t, err, "region is required")
+}
+
+func TestBackupService_TestS3ConnectionKeepsSecretAndResolves(t *testing.T) {
+	repo := newMockSettingRepo()
+	store := newMockObjectStore()
+	var seen BackupS3Config
+	cfg := &config.Config{
+		Database: config.DatabaseConfig{Host: "localhost", Port: 5432, User: "test", DBName: "testdb"},
+		Totp:     config.TotpConfig{EncryptionKeyConfigured: true},
+	}
+	factory := func(_ context.Context, got *BackupS3Config) (BackupObjectStore, error) {
+		seen = *got
+		return store, nil
+	}
+	svc := NewBackupService(repo, cfg, &plainEncryptor{}, factory, &mockDumper{})
+	ctx := context.Background()
+
+	_, err := svc.UpdateS3Config(ctx, BackupS3Config{
+		Provider:        StorageProviderQiniu,
+		Region:          "cn-east-1",
+		Bucket:          "space",
+		AccessKeyID:     "ak",
+		SecretAccessKey: "stored-secret",
+	})
+	require.NoError(t, err)
+
+	err = svc.TestS3Connection(ctx, BackupS3Config{
+		Provider:    StorageProviderQiniu,
+		Region:      "cn-east-1",
+		Bucket:      "space",
+		AccessKeyID: "ak",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "stored-secret", seen.SecretAccessKey)
+	require.Empty(t, seen.Endpoint, "test must not persist the derived endpoint onto the config passed through")
+	require.Equal(t, 1, store.headCalls)
+
+	store.headCalls = 0
+	err = svc.TestS3Connection(ctx, BackupS3Config{
+		Provider:        StorageProviderAliyunOSS,
+		Bucket:          "example",
+		AccessKeyID:     "ak",
+		SecretAccessKey: "sk",
+	})
+	require.ErrorContains(t, err, "region is required")
+	require.Zero(t, store.headCalls)
+
+	err = svc.TestS3Connection(ctx, BackupS3Config{
+		Provider:        "nope",
+		Bucket:          "example",
+		AccessKeyID:     "ak",
+		SecretAccessKey: "sk",
+	})
+	require.ErrorContains(t, err, "unknown storage provider")
+	require.Zero(t, store.headCalls)
 }
