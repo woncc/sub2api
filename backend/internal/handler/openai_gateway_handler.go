@@ -47,6 +47,7 @@ type OpenAIGatewayHandler struct {
 	imageLimiter               *imageConcurrencyLimiter
 	maxAccountSwitches         int
 	cfg                        *config.Config
+	userOSS                    *service.UserOSSService
 }
 
 type openAIWSTurnChannelMappingSnapshot struct {

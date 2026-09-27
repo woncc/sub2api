@@ -82,6 +82,7 @@ type ImageTaskService struct {
 	resolve          ImageStorageResolver
 	ttl              time.Duration
 	executionTimeout time.Duration
+	userOSS          *UserOSSService
 }
 
 func NewImageTaskService(store ImageTaskStore) *ImageTaskService {
@@ -187,9 +188,38 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 	return imageTaskToPublic(task), nil
 }
 
+func (s *ImageTaskService) SetUserOSS(oss *UserOSSService) {
+	if s != nil {
+		s.userOSS = oss
+	}
+}
+
 func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {
+	return s.complete(ctx, id, statusCode, result, nil)
+}
+
+// CompleteWithUserOSS uploads the result to the caller's repository and does not
+// fall through to the admin image store when that upload fails.
+func (s *ImageTaskService) CompleteWithUserOSS(ctx context.Context, id string, statusCode int, result json.RawMessage, spec UserOSSRequest) error {
+	return s.complete(ctx, id, statusCode, result, &spec)
+}
+
+func (s *ImageTaskService) complete(ctx context.Context, id string, statusCode int, result json.RawMessage, spec *UserOSSRequest) error {
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
+	}
+	if spec != nil && spec.RepoID > 0 {
+		if s == nil || s.userOSS == nil {
+			logger.L().Error("image_task.user_oss_unavailable", zap.String("task_id", id))
+			return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "failed to store generated image to object storage"))
+		}
+		rewritten, err := s.userOSS.RewriteImageBody(ctx, *spec, id, result)
+		if err != nil {
+			logger.L().Error("image_task.user_oss_offload_failed", zap.String("task_id", id), zap.Error(err))
+			return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "failed to store generated image to object storage"))
+		}
+		result = rewritten
+		return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
 	}
 	if uploader, _ := s.current(); uploader != nil {
 		rewritten, err := uploader.Rewrite(ctx, id, result)

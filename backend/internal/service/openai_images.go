@@ -969,6 +969,12 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 		return OpenAIUsage{}, 0, nil, err
 	}
 	body = s.backfillOpenAIImagesB64JSON(ctx, account, parsed, body)
+	taskID := strings.TrimSpace(resp.Header.Get("x-request-id"))
+	rewritten, rewriteErr := s.rewriteUserOSSImage(c, taskID, body)
+	if rewriteErr != nil {
+		return OpenAIUsage{}, 0, nil, rewriteErr
+	}
+	body = rewritten
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
 	if s.cfg != nil && !s.cfg.Security.ResponseHeaders.Enabled {

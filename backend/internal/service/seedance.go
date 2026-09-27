@@ -149,6 +149,11 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 		if gjson.GetBytes(responseBody, "status").String() == "succeeded" {
 			result.Usage.OutputTokens = max(0, int(gjson.GetBytes(responseBody, "usage.completion_tokens").Int()))
 		}
+		rewritten, _, rewriteErr := s.rewriteUserOSSVideo(c, taskID, responseBody)
+		if rewriteErr != nil {
+			return nil, rewriteErr
+		}
+		responseBody = rewritten
 	}
 	writeGrokMediaResponse(c, resp, responseBody, s.responseHeaderFilter)
 	return result, nil

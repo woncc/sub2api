@@ -70,6 +70,15 @@ func RegisterUserRoutes(
 				passkeys.PATCH("/:id", h.Passkey.Rename)
 				passkeys.DELETE("/:id", h.Passkey.Delete)
 			}
+
+			oss := user.Group("/oss")
+			{
+				oss.GET("", h.UserOSS.List)
+				oss.POST("", h.UserOSS.Create)
+				oss.PUT("/:id", h.UserOSS.Update)
+				oss.DELETE("/:id", h.UserOSS.Delete)
+				oss.POST("/:id/check", h.UserOSS.Check)
+			}
 		}
 
 		// API Key管理

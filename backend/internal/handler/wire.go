@@ -132,12 +132,21 @@ func ProvideOpenAIGatewayHandler(
 	grokQuotaService *service.GrokQuotaService,
 	cfg *config.Config,
 	coordinator *securityaudit.Coordinator,
+	userOSS *service.UserOSSService,
 ) *OpenAIGatewayHandler {
 	gatewayService.SetPluginManager(pluginManager)
+	gatewayService.SetUserOSS(userOSS)
 	h := NewOpenAIGatewayHandler(gatewayService, concurrencyService, billingCacheService, apiKeyService,
 		usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, cfg)
 	h.securityAuditCoordinator = coordinator
 	h.grokMediaEligibilityProber = grokQuotaService
+	h.SetUserOSS(userOSS)
+	return h
+}
+
+func ProvideAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler, userOSS *service.UserOSSService) *AsyncImageHandler {
+	h := NewAsyncImageHandler(tasks, openAI)
+	h.SetUserOSS(userOSS)
 	return h
 }
 
@@ -196,6 +205,7 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	userOSSHandler *UserOSSHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -222,6 +232,7 @@ func ProvideHandlers(
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		UserOSS:          userOSSHandler,
 	}
 }
 
@@ -246,7 +257,8 @@ var ProviderSet = wire.NewSet(
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
 	NewModelPlazaHandler,
-	NewAsyncImageHandler,
+	ProvideAsyncImageHandler,
+	NewUserOSSHandler,
 	ProvideBatchImageHandler,
 
 	// Admin handlers
