@@ -7,39 +7,48 @@
             <h3 class="text-base font-semibold text-gray-900 dark:text-white">
               {{ t('admin.backup.s3.title') }}
             </h3>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p v-if="s3Form.provider === 's3'" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {{ t('admin.backup.s3.descriptionPrefix') }}
-              <button type="button" class="text-primary-600 underline hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300" @click="showR2Guide = true">Cloudflare R2</button>
+              <button type="button" class="text-primary-600 underline hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300" data-testid="backup-r2-guide" @click="showR2Guide = true">Cloudflare R2</button>
               {{ t('admin.backup.s3.descriptionSuffix') }}
             </p>
           </div>
         </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.endpoint') }}</label>
-            <input v-model="s3Form.endpoint" class="input w-full" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
+          <div class="md:col-span-2">
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="backup-storage-provider">{{ t('admin.backup.s3.provider') }}</label>
+            <select id="backup-storage-provider" data-testid="backup-storage-provider" class="input w-full" :value="s3Form.provider" @change="onBackupProviderChange">
+              <option v-for="option in storageProviderOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.region') }}</label>
-            <input v-model="s3Form.region" class="input w-full" placeholder="auto" />
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="backup-storage-endpoint">{{ t('admin.backup.s3.endpoint') }}</label>
+            <input id="backup-storage-endpoint" v-model="s3Form.endpoint" data-testid="backup-storage-endpoint" class="input w-full" :placeholder="backupEndpointPlaceholder" />
+            <p v-if="s3Form.provider === 'aliyun_oss'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="backup-endpoint-derive-hint">{{ t('admin.backup.s3.endpointDeriveHint') }}</p>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.bucket') }}</label>
-            <input v-model="s3Form.bucket" class="input w-full" />
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="backup-storage-region">{{ t('admin.backup.s3.region') }}</label>
+            <input id="backup-storage-region" v-model="s3Form.region" data-testid="backup-storage-region" class="input w-full" :placeholder="regionPlaceholder(s3Form.provider)" />
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="backup-storage-bucket">{{ t('admin.backup.s3.bucket') }}</label>
+            <input id="backup-storage-bucket" v-model="s3Form.bucket" data-testid="backup-storage-bucket" class="input w-full" :placeholder="bucketPlaceholder(s3Form.provider)" />
+            <p v-if="s3Form.provider === 'tencent_cos'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="backup-bucket-hint">{{ t('admin.backup.s3.tencentBucketHint') }}</p>
+            <p v-else-if="s3Form.provider === 'qiniu'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="backup-bucket-hint">{{ t('admin.backup.s3.qiniuBucketHint') }}</p>
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.prefix') }}</label>
-            <input v-model="s3Form.prefix" class="input w-full" placeholder="backups/" />
+            <input v-model="s3Form.prefix" data-testid="backup-storage-prefix" class="input w-full" placeholder="backups/" />
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.accessKeyId') }}</label>
-            <input v-model="s3Form.access_key_id" class="input w-full" />
+            <input v-model="s3Form.access_key_id" data-testid="backup-storage-access-key" class="input w-full" />
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.secretAccessKey') }}</label>
-            <input v-model="s3Form.secret_access_key" type="password" class="input w-full" :placeholder="s3SecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
+            <input v-model="s3Form.secret_access_key" data-testid="backup-storage-secret" type="password" class="input w-full" :placeholder="s3SecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
           </div>
-          <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 md:col-span-2">
+          <label v-if="backupShowsForcePathStyle" class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 md:col-span-2" data-testid="backup-force-path-style">
             <input v-model="s3Form.force_path_style" type="checkbox" />
             <span>{{ t('admin.backup.s3.forcePathStyle') }}</span>
           </label>
@@ -48,7 +57,7 @@
           <button type="button" class="btn btn-secondary btn-sm" :disabled="testingS3" @click="testS3">
             {{ testingS3 ? t('common.loading') : t('admin.backup.s3.testConnection') }}
           </button>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="savingS3" @click="saveS3Config">
+          <button type="button" class="btn btn-primary btn-sm" data-testid="backup-s3-save" :disabled="savingS3" @click="saveS3Config">
             {{ savingS3 ? t('common.loading') : t('common.save') }}
           </button>
         </div>
@@ -72,38 +81,48 @@
         </div>
 
         <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-          <input v-model="imageStorageForm.reuse_backup_s3" type="checkbox" />
+          <input v-model="imageStorageForm.reuse_backup_s3" data-testid="image-reuse-backup" type="checkbox" />
           <span>{{ t('admin.backup.imageStorage.reuseBackupS3') }}</span>
         </label>
+
+        <div v-if="!imageStorageForm.reuse_backup_s3" class="mt-3">
+          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="image-storage-provider">{{ t('admin.backup.s3.provider') }}</label>
+          <select id="image-storage-provider" data-testid="image-storage-provider" class="input w-full" :value="imageStorageForm.provider" @change="onImageProviderChange">
+            <option v-for="option in storageProviderOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </div>
 
         <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.bucket') }}</label>
-            <input v-model="imageStorageForm.bucket" class="input w-full" :placeholder="imageStorageForm.reuse_backup_s3 ? t('admin.backup.imageStorage.bucketInherited') : ''" />
+            <input v-model="imageStorageForm.bucket" data-testid="image-storage-bucket" class="input w-full" :placeholder="imageBucketPlaceholder" />
+            <p v-if="!imageStorageForm.reuse_backup_s3 && imageStorageForm.provider === 'tencent_cos'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="image-bucket-hint">{{ t('admin.backup.s3.tencentBucketHint') }}</p>
+            <p v-else-if="!imageStorageForm.reuse_backup_s3 && imageStorageForm.provider === 'qiniu'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="image-bucket-hint">{{ t('admin.backup.s3.qiniuBucketHint') }}</p>
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.prefix') }}</label>
-            <input v-model="imageStorageForm.prefix" class="input w-full" placeholder="images/" />
+            <input v-model="imageStorageForm.prefix" data-testid="image-storage-prefix" class="input w-full" placeholder="images/" />
           </div>
 
           <template v-if="!imageStorageForm.reuse_backup_s3">
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.endpoint') }}</label>
-              <input v-model="imageStorageForm.endpoint" class="input w-full" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="image-storage-endpoint">{{ t('admin.backup.s3.endpoint') }}</label>
+              <input id="image-storage-endpoint" v-model="imageStorageForm.endpoint" data-testid="image-storage-endpoint" class="input w-full" :placeholder="imageEndpointPlaceholder" />
+              <p v-if="imageStorageForm.provider === 'aliyun_oss'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="image-endpoint-derive-hint">{{ t('admin.backup.s3.endpointDeriveHint') }}</p>
             </div>
             <div>
-              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.region') }}</label>
-              <input v-model="imageStorageForm.region" class="input w-full" placeholder="auto" />
+              <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400" for="image-storage-region">{{ t('admin.backup.s3.region') }}</label>
+              <input id="image-storage-region" v-model="imageStorageForm.region" data-testid="image-storage-region" class="input w-full" :placeholder="regionPlaceholder(imageStorageForm.provider || 's3')" />
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.accessKeyId') }}</label>
-              <input v-model="imageStorageForm.access_key_id" class="input w-full" />
+              <input v-model="imageStorageForm.access_key_id" data-testid="image-storage-access-key" class="input w-full" />
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.secretAccessKey') }}</label>
-              <input v-model="imageStorageForm.secret_access_key" type="password" class="input w-full" :placeholder="imageStorageSecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
+              <input v-model="imageStorageForm.secret_access_key" data-testid="image-storage-secret" type="password" class="input w-full" :placeholder="imageStorageSecretConfigured ? t('admin.backup.s3.secretConfigured') : ''" />
             </div>
-            <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 md:col-span-2">
+            <label v-if="imageShowsForcePathStyle" class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 md:col-span-2" data-testid="image-force-path-style">
               <input v-model="imageStorageForm.force_path_style" type="checkbox" />
               <span>{{ t('admin.backup.s3.forcePathStyle') }}</span>
             </label>
@@ -111,11 +130,12 @@
 
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.publicBaseUrl') }}</label>
-            <input v-model="imageStorageForm.public_base_url" class="input w-full" :placeholder="t('admin.backup.imageStorage.publicBaseUrlPlaceholder')" />
+            <input v-model="imageStorageForm.public_base_url" data-testid="image-public-base-url" class="input w-full" :placeholder="t('admin.backup.imageStorage.publicBaseUrlPlaceholder')" />
+            <p v-if="imageEffectiveProvider === 'qiniu'" class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="image-qiniu-public-base-hint">{{ t('admin.backup.imageStorage.qiniuPublicBaseUrlHint') }}</p>
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.presignExpiryHours') }}</label>
-            <input v-model.number="imageStorageForm.presign_expiry_hours" type="number" min="1" class="input w-full" />
+            <input v-model.number="imageStorageForm.presign_expiry_hours" data-testid="image-presign-hours" type="number" min="1" class="input w-full" />
           </div>
         </div>
 
@@ -123,7 +143,7 @@
           <button type="button" class="btn btn-secondary btn-sm" :disabled="testingImageStorage" @click="testImageStorage">
             {{ testingImageStorage ? t('common.loading') : t('admin.backup.s3.testConnection') }}
           </button>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="savingImageStorage" @click="saveImageStorageConfig">
+          <button type="button" class="btn btn-primary btn-sm" data-testid="image-storage-save" :disabled="savingImageStorage" @click="saveImageStorageConfig">
             {{ savingImageStorage ? t('common.loading') : t('common.save') }}
           </button>
         </div>
@@ -425,6 +445,8 @@ import type {
   BackupRecord,
   BackupDownloadPart,
   ImageStorageConfig,
+  StorageEndpointResolved,
+  StorageProvider,
 } from '@/api/admin/backup'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
@@ -445,8 +467,106 @@ function reportStepUpBlocked(error: unknown): boolean {
   return true
 }
 
-// S3 config
+const STORAGE_PROVIDERS: StorageProvider[] = ['s3', 'aliyun_oss', 'tencent_cos', 'qiniu']
+
+const REGION_PLACEHOLDERS: Record<StorageProvider, string> = {
+  s3: 'auto',
+  aliyun_oss: 'cn-hangzhou',
+  tencent_cos: 'ap-guangzhou',
+  qiniu: 'cn-east-1',
+}
+
+const ENDPOINT_PLACEHOLDERS: Record<StorageProvider, string> = {
+  s3: 'https://<account_id>.r2.cloudflarestorage.com',
+  aliyun_oss: 'https://s3.oss-cn-hangzhou.aliyuncs.com',
+  tencent_cos: 'https://cos.ap-guangzhou.myqcloud.com',
+  qiniu: 'https://s3.cn-east-1.qiniucs.com',
+}
+
+interface ResolvedContext {
+  provider: StorageProvider
+  region: string
+  bucket: string
+}
+
+function normalizeStorageProvider(value: string | undefined | null): StorageProvider {
+  const provider = (value || '').trim()
+  return STORAGE_PROVIDERS.includes(provider as StorageProvider) ? provider as StorageProvider : 's3'
+}
+
+function displayRegion(provider: StorageProvider, region: string | undefined | null): string {
+  if (provider === 's3') return region?.trim() ? region : 'auto'
+  return region ?? ''
+}
+
+function applyStorageProviderChange(form: { provider: StorageProvider; region: string; endpoint: string }, next: StorageProvider) {
+  if (form.provider === next) return
+  form.provider = next
+  if (next === 's3') {
+    if (!form.region.trim()) form.region = 'auto'
+    return
+  }
+  if (!form.region.trim() || form.region.trim() === 'auto') form.region = ''
+  form.endpoint = ''
+}
+
+function regionPlaceholder(provider: StorageProvider | undefined): string {
+  return REGION_PLACEHOLDERS[normalizeStorageProvider(provider)]
+}
+
+function bucketPlaceholder(provider: StorageProvider | undefined): string {
+  return normalizeStorageProvider(provider) === 'tencent_cos' ? 'example-1250000000' : ''
+}
+
+function endpointPlaceholder(
+  provider: StorageProvider,
+  endpoint: string,
+  region: string,
+  bucket: string,
+  resolved: StorageEndpointResolved | null,
+  context: ResolvedContext | null,
+): string {
+  const derived = resolved?.endpoint?.trim()
+  if (
+    !endpoint.trim() &&
+    derived &&
+    context &&
+    context.provider === provider &&
+    context.region.trim() === region.trim() &&
+    context.bucket.trim() === bucket.trim()
+  ) {
+    return derived
+  }
+  return ENDPOINT_PLACEHOLDERS[provider]
+}
+
+function rememberResolved(
+  resolvedRef: { value: StorageEndpointResolved | null },
+  contextRef: { value: ResolvedContext | null },
+  provider: StorageProvider,
+  region: string,
+  bucket: string,
+  resolved: StorageEndpointResolved | undefined,
+) {
+  if (resolved?.endpoint?.trim()) {
+    resolvedRef.value = resolved
+    contextRef.value = { provider, region, bucket }
+    return
+  }
+  resolvedRef.value = null
+  contextRef.value = null
+}
+
+const storageProviderOptions = computed(() => [
+  { value: 's3' as const, label: t('admin.backup.s3.providers.s3') },
+  { value: 'aliyun_oss' as const, label: t('admin.backup.s3.providers.aliyun_oss') },
+  { value: 'tencent_cos' as const, label: t('admin.backup.s3.providers.tencent_cos') },
+  { value: 'qiniu' as const, label: t('admin.backup.s3.providers.qiniu') },
+])
+
+// Backup object storage. Empty endpoint stays empty; the derived URL is only a placeholder.
 const s3Form = ref<BackupS3Config>({
+  provider: 's3',
   endpoint: '',
   region: 'auto',
   bucket: '',
@@ -455,12 +575,24 @@ const s3Form = ref<BackupS3Config>({
   prefix: 'backups/',
   force_path_style: false,
 })
+const s3Resolved = ref<StorageEndpointResolved | null>(null)
+const s3ResolvedContext = ref<ResolvedContext | null>(null)
 const s3SecretConfigured = ref(false)
 const savingS3 = ref(false)
 const testingS3 = ref(false)
+const backupEndpointPlaceholder = computed(() => endpointPlaceholder(
+  s3Form.value.provider || 's3',
+  s3Form.value.endpoint,
+  s3Form.value.region,
+  s3Form.value.bucket,
+  s3Resolved.value,
+  s3ResolvedContext.value,
+))
+const backupShowsForcePathStyle = computed(() =>
+  (s3Form.value.provider || 's3') === 's3' || s3Form.value.endpoint.trim() !== '',
+)
 
-// Async image object storage. Shares the S3 client with backups, so the default is
-// to reuse the credentials configured above and only differ by prefix.
+// Async image object storage. Reuse borrows the backup provider and credentials.
 const imageStorageForm = ref<ImageStorageConfig>({
   enabled: false,
   reuse_backup_s3: true,
@@ -469,15 +601,87 @@ const imageStorageForm = ref<ImageStorageConfig>({
   public_base_url: '',
   presign_expiry_hours: 24,
   max_download_bytes: 33554432,
+  provider: 's3',
   endpoint: '',
   region: 'auto',
   access_key_id: '',
   secret_access_key: '',
   force_path_style: false,
 })
+const imageResolved = ref<StorageEndpointResolved | null>(null)
+const imageResolvedContext = ref<ResolvedContext | null>(null)
 const imageStorageSecretConfigured = ref(false)
 const savingImageStorage = ref(false)
 const testingImageStorage = ref(false)
+const imageEndpointPlaceholder = computed(() => endpointPlaceholder(
+  imageStorageForm.value.provider || 's3',
+  imageStorageForm.value.endpoint,
+  imageStorageForm.value.region,
+  imageStorageForm.value.bucket,
+  imageResolved.value,
+  imageResolvedContext.value,
+))
+const imageShowsForcePathStyle = computed(() =>
+  (imageStorageForm.value.provider || 's3') === 's3' || imageStorageForm.value.endpoint.trim() !== '',
+)
+const imageBucketPlaceholder = computed(() => {
+  if (imageStorageForm.value.reuse_backup_s3) return t('admin.backup.imageStorage.bucketInherited')
+  return bucketPlaceholder(imageStorageForm.value.provider || 's3')
+})
+const imageEffectiveProvider = computed(() =>
+  imageStorageForm.value.reuse_backup_s3
+    ? (s3Form.value.provider || 's3')
+    : (imageStorageForm.value.provider || 's3'),
+)
+
+function onBackupProviderChange(event: Event) {
+  const next = normalizeStorageProvider((event.target as HTMLSelectElement).value)
+  if (next === s3Form.value.provider) return
+  applyStorageProviderChange(s3Form.value as { provider: StorageProvider; region: string; endpoint: string }, next)
+  s3Resolved.value = null
+  s3ResolvedContext.value = null
+}
+
+function onImageProviderChange(event: Event) {
+  const next = normalizeStorageProvider((event.target as HTMLSelectElement).value)
+  if (next === imageStorageForm.value.provider) return
+  applyStorageProviderChange(imageStorageForm.value as { provider: StorageProvider; region: string; endpoint: string }, next)
+  imageResolved.value = null
+  imageResolvedContext.value = null
+}
+
+function backupSubmitPayload(): BackupS3Config {
+  const form = s3Form.value
+  return {
+    provider: form.provider || 's3',
+    endpoint: form.endpoint,
+    region: form.region,
+    bucket: form.bucket,
+    access_key_id: form.access_key_id,
+    secret_access_key: form.secret_access_key ?? '',
+    prefix: form.prefix,
+    force_path_style: form.force_path_style,
+  }
+}
+
+function imageSubmitPayload(): ImageStorageConfig {
+  const form = imageStorageForm.value
+  return {
+    enabled: form.enabled,
+    reuse_backup_s3: form.reuse_backup_s3,
+    bucket: form.bucket,
+    prefix: form.prefix,
+    public_base_url: form.public_base_url,
+    presign_expiry_hours: form.presign_expiry_hours,
+    max_download_bytes: form.max_download_bytes,
+    provider: form.provider || 's3',
+    endpoint: form.endpoint,
+    region: form.region,
+    access_key_id: form.access_key_id,
+    secret_access_key: form.secret_access_key ?? '',
+    force_path_style: form.force_path_style,
+  }
+}
 
 // Schedule config
 const scheduleForm = ref<BackupScheduleConfig>({
@@ -653,16 +857,21 @@ const r2ConfigRows = computed(() => [
 async function loadS3Config() {
   try {
     const cfg = await adminAPI.backup.getS3Config()
+    const provider = normalizeStorageProvider(cfg.provider)
+    const region = displayRegion(provider, cfg.region)
+    const bucket = cfg.bucket || ''
     s3Form.value = {
+      provider,
       endpoint: cfg.endpoint || '',
-      region: cfg.region || 'auto',
-      bucket: cfg.bucket || '',
+      region,
+      bucket,
       access_key_id: cfg.access_key_id || '',
       secret_access_key: '',
       prefix: cfg.prefix || 'backups/',
-      force_path_style: cfg.force_path_style,
+      force_path_style: Boolean(cfg.force_path_style),
     }
     s3SecretConfigured.value = Boolean(cfg.access_key_id)
+    rememberResolved(s3Resolved, s3ResolvedContext, provider, region, bucket, cfg.resolved)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -671,7 +880,7 @@ async function loadS3Config() {
 async function saveS3Config() {
   savingS3.value = true
   try {
-    await backupStepUp.run(() => adminAPI.backup.updateS3Config(s3Form.value))
+    await backupStepUp.run(() => adminAPI.backup.updateS3Config(backupSubmitPayload()))
     appStore.showSuccess(t('admin.backup.s3.saved'))
     await loadS3Config()
   } catch (error) {
@@ -688,13 +897,26 @@ async function saveS3Config() {
 async function loadImageStorageConfig() {
   try {
     const { config, secret_configured } = await adminAPI.backup.getImageStorageConfig()
+    const provider = normalizeStorageProvider(config.provider)
+    const region = displayRegion(provider, config.region)
+    const bucket = config.bucket || ''
     imageStorageForm.value = {
-      ...config,
+      enabled: Boolean(config.enabled),
+      reuse_backup_s3: Boolean(config.reuse_backup_s3),
+      bucket,
       prefix: config.prefix || 'images/',
-      region: config.region || 'auto',
+      public_base_url: config.public_base_url || '',
+      presign_expiry_hours: config.presign_expiry_hours ?? 24,
+      max_download_bytes: config.max_download_bytes ?? 33554432,
+      provider,
+      endpoint: config.endpoint || '',
+      region,
+      access_key_id: config.access_key_id || '',
       secret_access_key: '',
+      force_path_style: Boolean(config.force_path_style),
     }
     imageStorageSecretConfigured.value = secret_configured
+    rememberResolved(imageResolved, imageResolvedContext, provider, region, bucket, config.resolved)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -703,7 +925,7 @@ async function loadImageStorageConfig() {
 async function saveImageStorageConfig() {
   savingImageStorage.value = true
   try {
-    await backupStepUp.run(() => adminAPI.backup.updateImageStorageConfig(imageStorageForm.value))
+    await backupStepUp.run(() => adminAPI.backup.updateImageStorageConfig(imageSubmitPayload()))
     appStore.showSuccess(t('admin.backup.imageStorage.saved'))
     await loadImageStorageConfig()
   } catch (error) {
@@ -717,10 +939,28 @@ async function saveImageStorageConfig() {
   }
 }
 
+function applyTestResolved(
+  result: { resolved?: StorageEndpointResolved },
+  form: { provider?: StorageProvider; region: string; bucket: string; endpoint: string },
+  resolvedRef: { value: StorageEndpointResolved | null },
+  contextRef: { value: ResolvedContext | null },
+) {
+  if (!result.resolved?.endpoint?.trim() || form.endpoint.trim()) return
+  rememberResolved(
+    resolvedRef,
+    contextRef,
+    form.provider || 's3',
+    form.region,
+    form.bucket,
+    result.resolved,
+  )
+}
+
 async function testImageStorage() {
   testingImageStorage.value = true
   try {
-    const result = await adminAPI.backup.testImageStorageConnection(imageStorageForm.value)
+    const result = await adminAPI.backup.testImageStorageConnection(imageSubmitPayload())
+    applyTestResolved(result, imageStorageForm.value, imageResolved, imageResolvedContext)
     if (result.ok) {
       appStore.showSuccess(result.message || t('admin.backup.s3.testSuccess'))
     } else {
@@ -736,7 +976,8 @@ async function testImageStorage() {
 async function testS3() {
   testingS3.value = true
   try {
-    const result = await adminAPI.backup.testS3Connection(s3Form.value)
+    const result = await adminAPI.backup.testS3Connection(backupSubmitPayload())
+    applyTestResolved(result, s3Form.value, s3Resolved, s3ResolvedContext)
     if (result.ok) {
       appStore.showSuccess(result.message || t('admin.backup.s3.testSuccess'))
     } else {
