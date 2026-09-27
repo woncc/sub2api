@@ -32,7 +32,8 @@ func (UserOSSRepository) Mixin() []ent.Mixin {
 
 func (UserOSSRepository) Fields() []ent.Field {
 	return []ent.Field{
-		field.Int64("user_id"),
+		field.Int64("user_id").
+			Comment("Owning user. SQL migration cascades deletes with the user."),
 		field.String("provider").
 			MaxLen(32).
 			NotEmpty(),

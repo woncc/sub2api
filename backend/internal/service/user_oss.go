@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +32,10 @@ var (
 	errUserOSSBucketURL      = errors.New("bucket_url must look like https://{bucket}-{appid}.cos.{region}.myqcloud.com")
 	errUserOSSTooMany        = errors.New("too many object storage repositories")
 
-	tencentBucketURL = regexp.MustCompile(`^(?:https?://)?([a-z0-9][a-z0-9-]*-[0-9]+)\.cos\.([a-z0-9-]+)\.myqcloud\.com/?$`)
+	tencentBucketURL    = regexp.MustCompile(`^(?:https?://)?([a-z0-9][a-z0-9-]*-[0-9]+)\.cos\.([a-z0-9-]+)\.myqcloud\.com/?$`)
+	userOSSRegionPat    = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
+	userOSSPathSegment  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	cloudflareAccountID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 )
 
 // UserOSSRepository is the per-user store. Queries must always include user_id.
@@ -104,10 +108,11 @@ type EncryptionKeyGate interface {
 
 // UserOSSService owns CRUD, connectivity checks, and per-request uploaders.
 type UserOSSService struct {
-	repo      UserOSSRepository
-	encryptor SecretEncryptor
-	keys      EncryptionKeyGate
-	factory   ImageStorageFactory
+	repo              UserOSSRepository
+	encryptor         SecretEncryptor
+	keys              EncryptionKeyGate
+	factory           ImageStorageFactory
+	allowPrivateFetch bool
 }
 
 func NewUserOSSService(repo UserOSSRepository, encryptor SecretEncryptor, keys EncryptionKeyGate, factory ImageStorageFactory) *UserOSSService {
@@ -277,14 +282,15 @@ func (s *UserOSSService) normalize(ctx context.Context, userID, id int64, in Use
 		rec.Bucket = in.Bucket
 		rec.AccessKeyID = in.AccessKey
 	case UserOSSProviderCloudflare:
-		if in.AccountID == "" || in.BucketName == "" || in.AccessKeyID == "" {
-			return nil, invalidStorageConfig(errors.New("account_id, bucket_name, and access_key_id are required"))
+		accountID := strings.ToLower(in.AccountID)
+		if !cloudflareAccountID.MatchString(accountID) || in.BucketName == "" || in.AccessKeyID == "" {
+			return nil, invalidStorageConfig(errors.New("account_id must be 32 hex characters, and bucket_name and access_key_id are required"))
 		}
-		rec.AccountID = in.AccountID
+		rec.AccountID = accountID
 		rec.Bucket = in.BucketName
 		rec.AccessKeyID = in.AccessKeyID
 		rec.Region = "auto"
-		rec.Endpoint = "https://" + in.AccountID + ".r2.cloudflarestorage.com"
+		rec.Endpoint = "https://" + accountID + ".r2.cloudflarestorage.com"
 		rec.ForcePathStyle = true
 	case UserOSSProviderS3:
 		if in.Bucket == "" || in.AccessKeyID == "" {
@@ -298,6 +304,17 @@ func (s *UserOSSService) normalize(ctx context.Context, userID, id int64, in Use
 		}
 		rec.Endpoint = in.Endpoint
 		rec.ForcePathStyle = in.ForcePathStyle
+	}
+
+	if err := validateUserOSSBucket(rec.Bucket); err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+	rec.Region = strings.ToLower(rec.Region)
+	if err := validateUserOSSRegion(rec.Region); err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+	if err := validateUserOSSEndpoint(rec.Endpoint); err != nil {
+		return nil, invalidStorageConfig(err)
 	}
 
 	secret := secretFromUserOSSInput(provider, in)
@@ -323,7 +340,11 @@ func (s *UserOSSService) normalize(ctx context.Context, userID, id int64, in Use
 	if err != nil {
 		return nil, err
 	}
-	if _, err := resolvedStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle); err != nil {
+	resolved, err := resolvedStorageEndpoint(cfg.Provider, cfg.Region, cfg.Bucket, cfg.Endpoint, cfg.ForcePathStyle)
+	if err != nil {
+		return nil, invalidStorageConfig(err)
+	}
+	if err := validateUserOSSEndpoint(resolved.Endpoint); err != nil {
 		return nil, invalidStorageConfig(err)
 	}
 	return rec, nil
@@ -349,18 +370,19 @@ func (s *UserOSSService) configFromRecord(ctx context.Context, rec *UserOSSRecor
 		provider = StorageProviderS3
 	}
 	cfg := &config.ImageStorageConfig{
-		Enabled:         true,
-		Provider:        provider,
-		Endpoint:        rec.Endpoint,
-		Region:          rec.Region,
-		Bucket:          rec.Bucket,
-		AccessKeyID:     rec.AccessKeyID,
-		SecretAccessKey: secret,
-		Prefix:          prefix,
-		ForcePathStyle:  rec.ForcePathStyle,
-		PublicBaseURL:   rec.Domain,
-		PresignExpiry:   24,
-		MaxDownloadByte: defaultImageMaxDownloadBytes,
+		Enabled:              true,
+		Provider:             provider,
+		Endpoint:             rec.Endpoint,
+		Region:               rec.Region,
+		Bucket:               rec.Bucket,
+		AccessKeyID:          rec.AccessKeyID,
+		SecretAccessKey:      secret,
+		Prefix:               prefix,
+		ForcePathStyle:       rec.ForcePathStyle,
+		PublicBaseURL:        rec.Domain,
+		PresignExpiry:        24,
+		MaxDownloadByte:      defaultImageMaxDownloadBytes,
+		RejectPrivateNetwork: true,
 	}
 	if strings.TrimSpace(cfg.Provider) == "" {
 		cfg.Provider = StorageProviderS3
@@ -473,8 +495,17 @@ func normalizeOSSDomain(domain string) string {
 }
 
 func validateOSSDomain(domain string) error {
+	if strings.ContainsAny(domain, "\\ \t\r\n") {
+		return errUserOSSDomain
+	}
 	parsed, err := url.Parse(domain)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errUserOSSDomain
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return errUserOSSDomain
+	}
+	if urlvalidatorBlockedHost(parsed.Hostname()) {
 		return errUserOSSDomain
 	}
 	return nil
@@ -495,17 +526,13 @@ func ParseOSSID(raw string) (int64, bool, error) {
 	if raw == "" {
 		return 0, false, nil
 	}
-	var id int64
 	for _, ch := range raw {
 		if ch < '0' || ch > '9' {
 			return 0, true, invalidStorageConfig(errors.New("oss-id must be a repository id"))
 		}
-		id = id*10 + int64(ch-'0')
-		if id < 0 {
-			return 0, true, invalidStorageConfig(errors.New("oss-id must be a repository id"))
-		}
 	}
-	if id <= 0 {
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
 		return 0, true, invalidStorageConfig(errors.New("oss-id must be a repository id"))
 	}
 	return id, true, nil
@@ -519,13 +546,30 @@ func NormalizeOSSPath(path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	if strings.Contains(path, "..") || strings.Contains(path, "\\") || strings.Contains(path, " ") {
+	if strings.Contains(path, "..") || strings.ContainsAny(path, "\\ \t\r\n?#%") {
 		return "", errors.New("oss-path must be a relative object prefix")
 	}
 	for _, part := range strings.Split(path, "/") {
-		if part == "" || part == "." || part == ".." {
+		if part == "" || part == "." || part == ".." || !userOSSPathSegment.MatchString(part) {
 			return "", errors.New("oss-path must be a relative object prefix")
 		}
 	}
 	return path + "/", nil
+}
+
+func validateUserOSSBucket(bucket string) error {
+	if bucket == "" || len(bucket) > 256 || strings.Contains(bucket, "..") || strings.ContainsAny(bucket, "/\\?#@ \t\r\n") {
+		return errors.New("bucket name is invalid")
+	}
+	return nil
+}
+
+func validateUserOSSRegion(region string) error {
+	if region == "" {
+		return nil
+	}
+	if !userOSSRegionPat.MatchString(strings.ToLower(region)) {
+		return errors.New("region contains unsupported characters")
+	}
+	return nil
 }

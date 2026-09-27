@@ -74,12 +74,15 @@ func OSSOwnerFromContext(ctx context.Context) (OSSOwner, bool) {
 
 // RewriteImageBody uploads image artifacts and returns URLs on the user's domain.
 func (s *UserOSSService) RewriteImageBody(ctx context.Context, spec UserOSSRequest, taskID string, body []byte) ([]byte, error) {
-	uploader, err := s.imageUploader(ctx, spec)
+	cfg, uploader, err := s.imageUploader(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
 	rewritten, err := uploader.Rewrite(ctx, sanitizeOSSKeyPart(taskID), body)
 	if err != nil {
+		return nil, fmt.Errorf("upload image to user object storage: %w", err)
+	}
+	if err := assertRewrittenImageURLs(rewritten, cfg.PublicBaseURL); err != nil {
 		return nil, fmt.Errorf("upload image to user object storage: %w", err)
 	}
 	return rewritten, nil
@@ -94,13 +97,18 @@ func (s *UserOSSService) RewriteVideoBody(ctx context.Context, spec UserOSSReque
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := s.fetchClient()
 	uploaded := map[string]string{}
 	index := 0
 	for _, path := range []string{"video.url", "content.video_url", "video_url"} {
 		raw := strings.TrimSpace(gjson.GetBytes(body, path).String())
 		if !isHTTPURL(raw) {
 			continue
+		}
+		if !s.allowPrivateFetch {
+			if err := validateUserOSSFetchURL(raw); err != nil {
+				return nil, err
+			}
 		}
 		target, ok := uploaded[raw]
 		if !ok {
@@ -114,8 +122,8 @@ func (s *UserOSSService) RewriteVideoBody(ctx context.Context, spec UserOSSReque
 			if err != nil {
 				return nil, fmt.Errorf("upload video to user object storage: %w", err)
 			}
-			if cfg.PublicBaseURL != "" && !strings.HasPrefix(target, cfg.PublicBaseURL) {
-				return nil, errors.New("user object storage did not return a URL on the configured domain")
+			if err := artifactURLAllowed(cfg.PublicBaseURL, target); err != nil {
+				return nil, err
 			}
 			uploaded[raw] = target
 		}
@@ -130,12 +138,19 @@ func (s *UserOSSService) RewriteVideoBody(ctx context.Context, spec UserOSSReque
 	return body, nil
 }
 
-func (s *UserOSSService) imageUploader(ctx context.Context, spec UserOSSRequest) (*ImageResultUploader, error) {
+func (s *UserOSSService) imageUploader(ctx context.Context, spec UserOSSRequest) (*config.ImageStorageConfig, *ImageResultUploader, error) {
 	cfg, storage, err := s.openStorage(ctx, spec)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return NewImageResultUploader(storage, cfg.Prefix, cfg.MaxDownloadByte, nil), nil
+	return cfg, NewImageResultUploader(storage, cfg.Prefix, cfg.MaxDownloadByte, s.fetchClient()), nil
+}
+
+func (s *UserOSSService) fetchClient() *http.Client {
+	if s != nil && s.allowPrivateFetch {
+		return &http.Client{Timeout: 30 * time.Second}
+	}
+	return NewUserOSSHTTPClient()
 }
 
 func (s *UserOSSService) openStorage(ctx context.Context, spec UserOSSRequest) (*config.ImageStorageConfig, ImageStorage, error) {
@@ -158,6 +173,19 @@ func (s *UserOSSService) openStorage(ctx context.Context, spec UserOSSRequest) (
 		return nil, nil, fmt.Errorf("build user object storage client: %w", err)
 	}
 	return cfg, storage, nil
+}
+
+func assertRewrittenImageURLs(body []byte, publicBase string) error {
+	urls := gjson.GetBytes(body, "data.#.url")
+	if !urls.IsArray() || len(urls.Array()) == 0 {
+		return errors.New("image response did not include an uploadable image")
+	}
+	for _, item := range urls.Array() {
+		if err := artifactURLAllowed(publicBase, item.String()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func videoArtifactPresent(body []byte) bool {
@@ -291,5 +319,48 @@ func (s *OpenAIGatewayService) rewriteUserOSSVideo(c *gin.Context, requestID str
 func (s *OpenAIGatewayService) SetUserOSS(oss *UserOSSService) {
 	if s != nil {
 		s.userOSS = oss
+	}
+}
+
+// persistUserOSSBinding stores oss-id before the create response is written.
+// A later status poll must still upload when the client does not repeat the header.
+// Store failure aborts the success response instead of silently using platform storage.
+func (s *OpenAIGatewayService) persistUserOSSBinding(c *gin.Context, requestID string) error {
+	if s == nil || c == nil || c.Request == nil {
+		return nil
+	}
+	spec, ok := UserOSSRequestFromContext(c.Request.Context())
+	if !ok || spec.RepoID <= 0 || spec.Defer {
+		return nil
+	}
+	owner, ok := OSSOwnerFromContext(c.Request.Context())
+	if !ok {
+		return fmt.Errorf("user object storage binding is missing an owner")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return fmt.Errorf("user object storage binding is missing a task id")
+	}
+	pending, err := s.LoadGrokVideoPendingBilling(c.Request.Context(), requestID, owner.UserID, owner.APIKeyID)
+	if err != nil {
+		return fmt.Errorf("load user oss binding: %w", err)
+	}
+	if pending == nil {
+		pending = &GrokVideoPendingBilling{CreatedAt: GrokVideoPendingCreatedAtNow()}
+	}
+	pending.OSSRepositoryID = spec.RepoID
+	pending.OSSPath = spec.Prefix
+	if err := s.StoreGrokVideoPendingBilling(c.Request.Context(), requestID, owner.UserID, owner.APIKeyID, *pending); err != nil {
+		return fmt.Errorf("store user oss binding: %w", err)
+	}
+	return nil
+}
+
+func isUserOSSVideoCreate(endpoint GrokMediaEndpoint) bool {
+	switch endpoint {
+	case GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions:
+		return true
+	default:
+		return false
 	}
 }

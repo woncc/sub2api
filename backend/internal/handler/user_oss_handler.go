@@ -118,11 +118,7 @@ func (h *UserOSSHandler) Check(c *gin.Context) {
 		return
 	}
 	body := gin.H{"ok": err == nil}
-	if err != nil {
-		body["message"] = err.Error()
-	} else {
-		body["message"] = "connection successful"
-	}
+	body["message"] = service.PublicUserOSSCheckMessage(err)
 	if resolved != nil {
 		body["resolved"] = resolved
 	}

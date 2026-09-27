@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,7 +115,7 @@ func (s *userOSSStorage) Save(_ context.Context, key, contentType string, data [
 func (s *userOSSStorage) HeadBucket(context.Context) error { return nil }
 
 func newUserOSSServiceForTest(repo *userOSSMemoryRepo, storages *[]*userOSSStorage) *UserOSSService {
-	return NewUserOSSService(repo, userOSSEncryptor{}, &BackupService{encryptionKeyConfigured: true}, func(_ context.Context, cfg *config.ImageStorageConfig) (ImageStorage, error) {
+	svc := NewUserOSSService(repo, userOSSEncryptor{}, &BackupService{encryptionKeyConfigured: true}, func(_ context.Context, cfg *config.ImageStorageConfig) (ImageStorage, error) {
 		storage := &userOSSStorage{bucket: cfg.Bucket}
 		if storages != nil {
 			*storages = append(*storages, storage)
@@ -122,8 +123,13 @@ func newUserOSSServiceForTest(repo *userOSSMemoryRepo, storages *[]*userOSSStora
 		if cfg.PublicBaseURL != "" {
 			storage.saved = nil
 		}
+		if cfg.RejectPrivateNetwork != true {
+			return nil, errors.New("user object storage must reject private networks")
+		}
 		return &userOSSPublicStorage{userOSSStorage: storage, base: cfg.PublicBaseURL}, nil
 	})
+	svc.allowPrivateFetch = true
+	return svc
 }
 
 type userOSSPublicStorage struct {
@@ -219,14 +225,14 @@ func TestUserOSSProviderMappingAndCheck(t *testing.T) {
 	require.Equal(t, "ap-guangzhou", view.Region)
 
 	cf, err := svc.Create(context.Background(), 3, UserOSSInput{
-		Provider: "cloudflare", AccountID: "acct", AccessKeyID: "ak", AccessKeySecret: "sk",
+		Provider: "cloudflare", AccountID: "0123456789ABCDEF0123456789ABCDEF", AccessKeyID: "ak", AccessKeySecret: "sk",
 		BucketName: "assets", Domain: "https://cdn.example",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "acct", cf.AccountID)
+	require.Equal(t, "0123456789abcdef0123456789abcdef", cf.AccountID)
 	stored, err := repo.GetByUser(context.Background(), 3, cf.ID)
 	require.NoError(t, err)
-	require.Equal(t, "https://acct.r2.cloudflarestorage.com", stored.Endpoint)
+	require.Equal(t, "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com", stored.Endpoint)
 	require.True(t, stored.ForcePathStyle)
 
 	resolved, err := svc.Check(context.Background(), 3, view.ID, UserOSSInput{})
@@ -274,13 +280,146 @@ func TestNormalizeOSSPathAndParseID(t *testing.T) {
 	prefix, err := NormalizeOSSPath(" /file/images/ ")
 	require.NoError(t, err)
 	require.Equal(t, "file/images/", prefix)
-	_, err = NormalizeOSSPath("../secret")
-	require.Error(t, err)
+	for _, bad := range []string{"../secret", "file/../x", "a?b", "a#b", `a\b`, "a b", "file/%2e%2e"} {
+		_, err = NormalizeOSSPath(bad)
+		require.Error(t, err, bad)
+	}
 	_, enabled, err := ParseOSSID("  ")
 	require.NoError(t, err)
 	require.False(t, enabled)
 	_, _, err = ParseOSSID("abc")
 	require.Error(t, err)
+	_, _, err = ParseOSSID("999999999999999999999")
+	require.Error(t, err)
+}
+
+func TestUserOSSRejectsUnsafeEndpointDomainAndAccount(t *testing.T) {
+	repo := newUserOSSMemoryRepo()
+	svc := newUserOSSServiceForTest(repo, nil)
+	_, err := svc.Create(context.Background(), 1, UserOSSInput{
+		Provider: "s3", AccessKeyID: "ak", SecretAccessKey: "sk", Bucket: "photos",
+		Endpoint: "https://127.0.0.1:9000", Domain: "https://cdn.example",
+	})
+	require.Error(t, err)
+	_, err = svc.Create(context.Background(), 1, UserOSSInput{
+		Provider: "aliyun", AccessKeyID: "ak", AccessKeySecret: "sk", Bucket: "photos",
+		Region: "cn-hangzhou/evil", Domain: "https://cdn.example",
+	})
+	require.Error(t, err)
+	_, err = svc.Create(context.Background(), 1, UserOSSInput{
+		Provider: "cloudflare", AccountID: "acct/../../evil", AccessKeyID: "ak", AccessKeySecret: "sk",
+		BucketName: "assets", Domain: "https://cdn.example",
+	})
+	require.Error(t, err)
+	_, err = svc.Create(context.Background(), 1, UserOSSInput{
+		Provider: "s3", AccessKeyID: "ak", SecretAccessKey: "sk", Bucket: "photos",
+		Endpoint: "https://s3.example", Domain: "https://user:pass@cdn.example",
+	})
+	require.Error(t, err)
+	require.Error(t, validateUserOSSEndpoint("https://metadata.google.internal"))
+	require.Error(t, validateUserOSSEndpoint("http://s3.example"))
+	require.Error(t, validateUserOSSFetchURL("http://169.254.169.254/latest/meta-data"))
+	require.Error(t, artifactURLAllowed("https://cdn.example", "https://cdn.example.evil/a.png"))
+	require.NoError(t, artifactURLAllowed("https://cdn.example", "https://cdn.example/a.png?sig=1"))
+	_, err = dialUserOSSPublic(context.Background(), "tcp", "127.0.0.1:9")
+	require.Error(t, err)
+	require.Equal(t, "connection failed", PublicUserOSSCheckMessage(errors.New("SecretAccessKey=super-secret")))
+	require.NotContains(t, PublicUserOSSCheckMessage(invalidStorageConfig(errors.New("region is required"))), "super-secret")
+}
+
+func TestUserOSSUpdateDecryptFailureDoesNotWipe(t *testing.T) {
+	repo := newUserOSSMemoryRepo()
+	svc := newUserOSSServiceForTest(repo, nil)
+	created, err := svc.Create(context.Background(), 1, UserOSSInput{
+		Provider: "s3", AccessKeyID: "ak", SecretAccessKey: "topsecret",
+		Bucket: "photos", Region: "auto", Endpoint: "https://s3.example", Domain: "https://cdn.example",
+	})
+	require.NoError(t, err)
+	stored, err := repo.GetByUser(context.Background(), 1, created.ID)
+	require.NoError(t, err)
+	stored.SecretEncrypted = "not-decryptable"
+	repo.rows[created.ID] = stored
+	_, err = svc.Update(context.Background(), 1, created.ID, UserOSSInput{
+		Provider: "s3", AccessKeyID: "ak", Bucket: "wiped", Region: "auto",
+		Endpoint: "https://s3.example", Domain: "https://cdn.example",
+	})
+	require.Error(t, err)
+	require.Zero(t, repo.updates)
+	got, err := repo.GetByUser(context.Background(), 1, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, "photos", got.Bucket)
+	require.Equal(t, "not-decryptable", got.SecretEncrypted)
+}
+
+func TestUserOSSVideoRejectsPrivateURLAndLookalikeDomain(t *testing.T) {
+	repo := newUserOSSMemoryRepo()
+	svc := newUserOSSServiceForTest(repo, nil)
+	view, err := svc.Create(context.Background(), 4, UserOSSInput{
+		Provider: "s3", AccessKeyID: "ak", SecretAccessKey: "sk", Bucket: "photos",
+		Region: "auto", Endpoint: "https://s3.example", Domain: "https://cdn.example",
+	})
+	require.NoError(t, err)
+	spec := UserOSSRequest{UserID: 4, RepoID: view.ID, Prefix: "file/images/"}
+	svc.allowPrivateFetch = false
+	_, err = svc.RewriteVideoBody(context.Background(), spec, "req", []byte(`{"video":{"url":"http://169.254.169.254/latest/meta-data"}}`))
+	require.Error(t, err)
+
+	svc.allowPrivateFetch = true
+	svc.factory = func(context.Context, *config.ImageStorageConfig) (ImageStorage, error) {
+		return fixedURLStorage{url: "https://cdn.example.evil/obj.mp4"}, nil
+	}
+	videoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = io.WriteString(w, "video-bytes")
+	}))
+	defer videoSrv.Close()
+	_, err = svc.RewriteVideoBody(context.Background(), spec, "req", []byte(`{"video":{"url":"`+videoSrv.URL+`/clip.mp4"}}`))
+	require.Error(t, err)
+}
+
+type fixedURLStorage struct{ url string }
+
+func (s fixedURLStorage) Save(context.Context, string, string, []byte) (string, error) {
+	return s.url, nil
+}
+
+type ossPendingCache struct {
+	stubGatewayCache
+	payload []byte
+	setErr  error
+}
+
+func (c *ossPendingCache) SetGrokVideoPendingBilling(_ context.Context, _ string, payload []byte, _ time.Duration) error {
+	if c.setErr != nil {
+		return c.setErr
+	}
+	c.payload = append([]byte(nil), payload...)
+	return nil
+}
+
+func (c *ossPendingCache) GetGrokVideoPendingBilling(context.Context, string) ([]byte, error) {
+	return c.payload, nil
+}
+
+func TestPersistUserOSSBindingFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cache := &ossPendingCache{}
+	svc := &OpenAIGatewayService{cache: cache}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	require.NoError(t, svc.persistUserOSSBinding(c, "req-1"))
+	require.Empty(t, cache.payload)
+
+	AttachUserOSS(c, UserOSSRequest{UserID: 4, RepoID: 9, Prefix: "file/images/"})
+	require.Error(t, svc.persistUserOSSBinding(c, "req-1"))
+
+	AttachOSSOwner(c, 4, 8)
+	require.NoError(t, svc.persistUserOSSBinding(c, "req-1"))
+	require.Contains(t, string(cache.payload), `"oss_repository_id":9`)
+	require.Contains(t, string(cache.payload), `"oss_path":"file/images/"`)
+
+	cache.setErr = errors.New("redis down")
+	require.Error(t, svc.persistUserOSSBinding(c, "req-1"))
 }
 
 func TestImageTaskUserOSSSkipsAdminUploader(t *testing.T) {

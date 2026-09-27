@@ -2,7 +2,7 @@
 -- Soft-deleted rows stay so an oss-id cannot be reused by another configuration.
 CREATE TABLE IF NOT EXISTS user_oss_repositories (
     id               BIGSERIAL PRIMARY KEY,
-    user_id          BIGINT       NOT NULL REFERENCES users (id),
+    user_id          BIGINT       NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     provider         VARCHAR(32)  NOT NULL,
     bucket           VARCHAR(512) NOT NULL,
     domain           VARCHAR(512) NOT NULL DEFAULT '',

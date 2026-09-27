@@ -143,8 +143,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 
-	service.AttachOSSOwner(c, apiKey.UserID, apiKey.ID)
-	if err := h.bindGatewayUserOSS(c, apiKey.UserID, false); err != nil {
+	service.AttachOSSOwner(c, subject.UserID, apiKey.ID)
+	if err := h.bindGatewayUserOSS(c, subject.UserID, false); err != nil {
 		h.rejectUserOSS(c, err)
 		return
 	}

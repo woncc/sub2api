@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -24,7 +25,7 @@ func (h *OpenAIGatewayHandler) bindGatewayUserOSS(c *gin.Context, userID int64, 
 	if _, ok := service.UserOSSRequestFromContext(c.Request.Context()); ok {
 		return nil
 	}
-	ossID := c.GetHeader("oss-id")
+	ossID := strings.TrimSpace(c.GetHeader("oss-id"))
 	if ossID == "" {
 		return nil
 	}

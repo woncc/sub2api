@@ -272,6 +272,10 @@ type ImageStorageConfig struct {
 	PublicBaseURL   string `mapstructure:"public_base_url"`      // 配了则返回 public_base_url/key 直链；否则 presigned
 	PresignExpiry   int    `mapstructure:"presign_expiry_hours"` // public_base_url 为空时的 presigned 过期时长(小时)
 	MaxDownloadByte int64  `mapstructure:"max_download_bytes"`   // 下载上游 url 图片的字节上限
+	// RejectPrivateNetwork makes the S3 client refuse loopback, private, link-local,
+	// and cloud-metadata addresses. Per-user repositories set this. Admin storage
+	// leaves it false so a self-hosted MinIO endpoint can stay on a private network.
+	RejectPrivateNetwork bool `mapstructure:"-"`
 }
 
 // IsConfigured 检查对象存储必要字段是否已配置

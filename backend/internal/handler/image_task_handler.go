@@ -65,12 +65,16 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		return
 	}
 	var userOSS *service.UserOSSRequest
+	ownerID := apiKey.UserID
+	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
+		ownerID = subject.UserID
+	}
 	if strings.TrimSpace(c.GetHeader("oss-id")) != "" {
 		if h == nil || h.userOSS == nil {
 			imageTaskJSONError(c, http.StatusServiceUnavailable, "api_error", "object storage is unavailable")
 			return
 		}
-		spec, err := h.userOSS.SpecFromHeaders(c.Request.Context(), apiKey.UserID, c.GetHeader("oss-id"), c.GetHeader("oss-path"))
+		spec, err := h.userOSS.SpecFromHeaders(c.Request.Context(), ownerID, c.GetHeader("oss-id"), c.GetHeader("oss-path"))
 		if err != nil {
 			imageTaskError(c, err)
 			return
@@ -132,7 +136,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		deferred := *userOSS
 		deferred.Defer = true
 		service.AttachUserOSS(taskCtx, deferred)
-		service.AttachOSSOwner(taskCtx, apiKey.UserID, apiKey.ID)
+		service.AttachOSSOwner(taskCtx, ownerID, apiKey.ID)
 	}
 	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
 	if err != nil {

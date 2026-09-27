@@ -779,6 +779,11 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 			)
 		}
 	}
+	if isUserOSSVideoCreate(endpoint) {
+		if err := s.persistUserOSSBinding(c, extractGrokMediaVideoRequestID(respBody)); err != nil {
+			return nil, err
+		}
+	}
 	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
 	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)
 	resultModel := requestModel

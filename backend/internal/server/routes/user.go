@@ -77,7 +77,7 @@ func RegisterUserRoutes(
 				oss.POST("", h.UserOSS.Create)
 				oss.PUT("/:id", h.UserOSS.Update)
 				oss.DELETE("/:id", h.UserOSS.Delete)
-				oss.POST("/:id/check", h.UserOSS.Check)
+				oss.POST("/:id/check", panelRateLimiter.Heavy(), h.UserOSS.Check)
 			}
 		}
 

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -20,6 +21,7 @@ type s3ClientParams struct {
 	AccessKeyID     string
 	SecretAccessKey string
 	ForcePathStyle  bool
+	HTTPClient      *http.Client
 }
 
 // resolvedClientParams applies provider endpoint rules before the shared S3 client is built.
@@ -47,12 +49,16 @@ func newS3Client(ctx context.Context, p s3ClientParams) (*s3.Client, error) {
 		region = "auto" // Cloudflare R2 默认 region
 	}
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+	loadOptions := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(region),
 		awsconfig.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(p.AccessKeyID, p.SecretAccessKey, ""),
 		),
-	)
+	}
+	if p.HTTPClient != nil {
+		loadOptions = append(loadOptions, awsconfig.WithHTTPClient(p.HTTPClient))
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, loadOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
