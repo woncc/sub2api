@@ -506,10 +506,6 @@ func writeConfigFile(cfg *SetupConfig) error {
 			APIKeyPrefix    string  `yaml:"api_key_prefix"`
 			RateMultiplier  float64 `yaml:"rate_multiplier"`
 		} `yaml:"default"`
-		RateLimit struct {
-			RequestsPerMinute int `yaml:"requests_per_minute"`
-			BurstSize         int `yaml:"burst_size"`
-		} `yaml:"rate_limit"`
 		Security struct {
 			TrustForwardedIPForAPIKeyACL bool `yaml:"trust_forwarded_ip_for_api_key_acl"`
 		} `yaml:"security"`
@@ -535,13 +531,6 @@ func writeConfigFile(cfg *SetupConfig) error {
 			UserBalance:     0,
 			APIKeyPrefix:    "sk-",
 			RateMultiplier:  1.0,
-		},
-		RateLimit: struct {
-			RequestsPerMinute int `yaml:"requests_per_minute"`
-			BurstSize         int `yaml:"burst_size"`
-		}{
-			RequestsPerMinute: 60,
-			BurstSize:         10,
 		},
 		Security: struct {
 			TrustForwardedIPForAPIKeyACL bool `yaml:"trust_forwarded_ip_for_api_key_acl"`
