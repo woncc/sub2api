@@ -142,6 +142,9 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 			return nil, fmt.Errorf("seedance create response missing task ID")
 		}
 		result.ResponseID = SeedanceTaskKey(id)
+		// Binding failure returns UserOSSStorageError before the body is written.
+		// Do not attach the upstream task id: handing it back would let the client
+		// poll through platform storage and bypass the bound user store (#5).
 		if err := s.persistUserOSSBinding(c, result.ResponseID); err != nil {
 			return nil, err
 		}
