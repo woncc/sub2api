@@ -2530,11 +2530,40 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
 	}
 	scheduler := s.getOpenAIAccountScheduler(context.Background())
+	if s.openAISchedulerForceEnabled {
+		scheduler = s.openaiScheduler
+	}
 	if scheduler == nil {
 		return healthTripped
 	}
 	scheduler.ReportResult(accountID, success, firstTokenMs)
 	return healthTripped
+}
+
+// EnableOpenAIAccountSchedulerForTest records ReportResult on this service only.
+// Selection stays on the legacy path.
+func (s *OpenAIGatewayService) EnableOpenAIAccountSchedulerForTest() {
+	if s == nil {
+		return
+	}
+	if s.openaiAccountStats == nil {
+		s.openaiAccountStats = newOpenAIAccountRuntimeStats()
+	}
+	s.openaiScheduler = newDefaultOpenAIAccountScheduler(s, s.openaiAccountStats)
+	s.openAISchedulerForceEnabled = true
+}
+
+// OpenAIAccountErrorRateForTest returns the scheduler error-rate EWMA.
+// ok is false when the account has not been reported.
+func (s *OpenAIGatewayService) OpenAIAccountErrorRateForTest(accountID int64) (float64, bool) {
+	if s == nil || s.openaiAccountStats == nil || accountID <= 0 {
+		return 0, false
+	}
+	if _, found := s.openaiAccountStats.accounts.Load(accountID); !found {
+		return 0, false
+	}
+	rate, _, _ := s.openaiAccountStats.snapshot(accountID)
+	return rate, true
 }
 
 // ObserveOpenAIAccountHealthFailure records failures that cannot reach the

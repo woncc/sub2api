@@ -374,6 +374,19 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					)
 					continue
 				}
+				if service.IsUserOSSStorageError(err) {
+					// Upstream already succeeded. Report success so object storage is not
+					// scored as an account failure, and do not switch accounts.
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestModel, false, result), true, nil)
+					if !openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err) {
+						h.ensureForwardErrorResponseFor(c, streamStarted, err)
+					}
+					reqLog.Warn("openai.images.user_oss_storage_failed",
+						zap.Int64("account_id", account.ID),
+						zap.String("op", userOSSStorageOp(err)),
+					)
+					return
+				}
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false

@@ -125,9 +125,13 @@ type grokMediaSlotBindings struct {
 	key     string
 	billed  map[string]bool
 	pending map[string][]byte
+	setErr  error
 }
 
 func (s *grokMediaSlotBindings) SetGrokVideoPendingBilling(_ context.Context, key string, body []byte, _ time.Duration) error {
+	if s.setErr != nil {
+		return s.setErr
+	}
 	if s.pending == nil {
 		s.pending = make(map[string][]byte)
 	}
