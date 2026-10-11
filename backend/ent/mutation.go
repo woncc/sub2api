@@ -50,6 +50,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userossrepository"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -101,6 +102,7 @@ const (
 	TypeUserAllowedGroup              = "UserAllowedGroup"
 	TypeUserAttributeDefinition       = "UserAttributeDefinition"
 	TypeUserAttributeValue            = "UserAttributeValue"
+	TypeUserOSSRepository             = "UserOSSRepository"
 	TypeUserPlatformQuota             = "UserPlatformQuota"
 	TypeUserSubscription              = "UserSubscription"
 )
@@ -30113,6 +30115,8 @@ type PaymentOrderMutation struct {
 	addpay_amount            *float64
 	fee_rate                 *float64
 	addfee_rate              *float64
+	bonus_amount             *float64
+	addbonus_amount          *float64
 	recharge_code            *string
 	out_trade_no             *string
 	payment_type             *string
@@ -30578,6 +30582,62 @@ func (m *PaymentOrderMutation) AddedFeeRate() (r float64, exists bool) {
 func (m *PaymentOrderMutation) ResetFeeRate() {
 	m.fee_rate = nil
 	m.addfee_rate = nil
+}
+
+// SetBonusAmount sets the "bonus_amount" field.
+func (m *PaymentOrderMutation) SetBonusAmount(f float64) {
+	m.bonus_amount = &f
+	m.addbonus_amount = nil
+}
+
+// BonusAmount returns the value of the "bonus_amount" field in the mutation.
+func (m *PaymentOrderMutation) BonusAmount() (r float64, exists bool) {
+	v := m.bonus_amount
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBonusAmount returns the old "bonus_amount" field's value of the PaymentOrder entity.
+// If the PaymentOrder object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *PaymentOrderMutation) OldBonusAmount(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBonusAmount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBonusAmount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBonusAmount: %w", err)
+	}
+	return oldValue.BonusAmount, nil
+}
+
+// AddBonusAmount adds f to the "bonus_amount" field.
+func (m *PaymentOrderMutation) AddBonusAmount(f float64) {
+	if m.addbonus_amount != nil {
+		*m.addbonus_amount += f
+	} else {
+		m.addbonus_amount = &f
+	}
+}
+
+// AddedBonusAmount returns the value that was added to the "bonus_amount" field in this mutation.
+func (m *PaymentOrderMutation) AddedBonusAmount() (r float64, exists bool) {
+	v := m.addbonus_amount
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetBonusAmount resets all changes to the "bonus_amount" field.
+func (m *PaymentOrderMutation) ResetBonusAmount() {
+	m.bonus_amount = nil
+	m.addbonus_amount = nil
 }
 
 // SetRechargeCode sets the "recharge_code" field.
@@ -32123,7 +32183,7 @@ func (m *PaymentOrderMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *PaymentOrderMutation) Fields() []string {
-	fields := make([]string, 0, 39)
+	fields := make([]string, 0, 40)
 	if m.user != nil {
 		fields = append(fields, paymentorder.FieldUserID)
 	}
@@ -32144,6 +32204,9 @@ func (m *PaymentOrderMutation) Fields() []string {
 	}
 	if m.fee_rate != nil {
 		fields = append(fields, paymentorder.FieldFeeRate)
+	}
+	if m.bonus_amount != nil {
+		fields = append(fields, paymentorder.FieldBonusAmount)
 	}
 	if m.recharge_code != nil {
 		fields = append(fields, paymentorder.FieldRechargeCode)
@@ -32263,6 +32326,8 @@ func (m *PaymentOrderMutation) Field(name string) (ent.Value, bool) {
 		return m.PayAmount()
 	case paymentorder.FieldFeeRate:
 		return m.FeeRate()
+	case paymentorder.FieldBonusAmount:
+		return m.BonusAmount()
 	case paymentorder.FieldRechargeCode:
 		return m.RechargeCode()
 	case paymentorder.FieldOutTradeNo:
@@ -32350,6 +32415,8 @@ func (m *PaymentOrderMutation) OldField(ctx context.Context, name string) (ent.V
 		return m.OldPayAmount(ctx)
 	case paymentorder.FieldFeeRate:
 		return m.OldFeeRate(ctx)
+	case paymentorder.FieldBonusAmount:
+		return m.OldBonusAmount(ctx)
 	case paymentorder.FieldRechargeCode:
 		return m.OldRechargeCode(ctx)
 	case paymentorder.FieldOutTradeNo:
@@ -32471,6 +32538,13 @@ func (m *PaymentOrderMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetFeeRate(v)
+		return nil
+	case paymentorder.FieldBonusAmount:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBonusAmount(v)
 		return nil
 	case paymentorder.FieldRechargeCode:
 		v, ok := value.(string)
@@ -32713,6 +32787,9 @@ func (m *PaymentOrderMutation) AddedFields() []string {
 	if m.addfee_rate != nil {
 		fields = append(fields, paymentorder.FieldFeeRate)
 	}
+	if m.addbonus_amount != nil {
+		fields = append(fields, paymentorder.FieldBonusAmount)
+	}
 	if m.addplan_id != nil {
 		fields = append(fields, paymentorder.FieldPlanID)
 	}
@@ -32739,6 +32816,8 @@ func (m *PaymentOrderMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedPayAmount()
 	case paymentorder.FieldFeeRate:
 		return m.AddedFeeRate()
+	case paymentorder.FieldBonusAmount:
+		return m.AddedBonusAmount()
 	case paymentorder.FieldPlanID:
 		return m.AddedPlanID()
 	case paymentorder.FieldSubscriptionGroupID:
@@ -32776,6 +32855,13 @@ func (m *PaymentOrderMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddFeeRate(v)
+		return nil
+	case paymentorder.FieldBonusAmount:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddBonusAmount(v)
 		return nil
 	case paymentorder.FieldPlanID:
 		v, ok := value.(int64)
@@ -32975,6 +33061,9 @@ func (m *PaymentOrderMutation) ResetField(name string) error {
 		return nil
 	case paymentorder.FieldFeeRate:
 		m.ResetFeeRate()
+		return nil
+	case paymentorder.FieldBonusAmount:
+		m.ResetBonusAmount()
 		return nil
 	case paymentorder.FieldRechargeCode:
 		m.ResetRechargeCode()
@@ -53938,6 +54027,1092 @@ func (m *UserAttributeValueMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown UserAttributeValue edge %s", name)
+}
+
+// UserOSSRepositoryMutation represents an operation that mutates the UserOSSRepository nodes in the graph.
+type UserOSSRepositoryMutation struct {
+	config
+	op               Op
+	typ              string
+	id               *int64
+	created_at       *time.Time
+	updated_at       *time.Time
+	deleted_at       *time.Time
+	user_id          *int64
+	adduser_id       *int64
+	provider         *string
+	bucket           *string
+	domain           *string
+	region           *string
+	endpoint         *string
+	access_key_id    *string
+	secret_encrypted *string
+	account_id       *string
+	force_path_style *bool
+	bucket_url       *string
+	clearedFields    map[string]struct{}
+	done             bool
+	oldValue         func(context.Context) (*UserOSSRepository, error)
+	predicates       []predicate.UserOSSRepository
+}
+
+var _ ent.Mutation = (*UserOSSRepositoryMutation)(nil)
+
+// userossrepositoryOption allows management of the mutation configuration using functional options.
+type userossrepositoryOption func(*UserOSSRepositoryMutation)
+
+// newUserOSSRepositoryMutation creates new mutation for the UserOSSRepository entity.
+func newUserOSSRepositoryMutation(c config, op Op, opts ...userossrepositoryOption) *UserOSSRepositoryMutation {
+	m := &UserOSSRepositoryMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeUserOSSRepository,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withUserOSSRepositoryID sets the ID field of the mutation.
+func withUserOSSRepositoryID(id int64) userossrepositoryOption {
+	return func(m *UserOSSRepositoryMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *UserOSSRepository
+		)
+		m.oldValue = func(ctx context.Context) (*UserOSSRepository, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().UserOSSRepository.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withUserOSSRepository sets the old UserOSSRepository of the mutation.
+func withUserOSSRepository(node *UserOSSRepository) userossrepositoryOption {
+	return func(m *UserOSSRepositoryMutation) {
+		m.oldValue = func(context.Context) (*UserOSSRepository, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m UserOSSRepositoryMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m UserOSSRepositoryMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *UserOSSRepositoryMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *UserOSSRepositoryMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().UserOSSRepository.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *UserOSSRepositoryMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *UserOSSRepositoryMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *UserOSSRepositoryMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *UserOSSRepositoryMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *UserOSSRepositoryMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *UserOSSRepositoryMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetDeletedAt sets the "deleted_at" field.
+func (m *UserOSSRepositoryMutation) SetDeletedAt(t time.Time) {
+	m.deleted_at = &t
+}
+
+// DeletedAt returns the value of the "deleted_at" field in the mutation.
+func (m *UserOSSRepositoryMutation) DeletedAt() (r time.Time, exists bool) {
+	v := m.deleted_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeletedAt returns the old "deleted_at" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldDeletedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeletedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeletedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeletedAt: %w", err)
+	}
+	return oldValue.DeletedAt, nil
+}
+
+// ClearDeletedAt clears the value of the "deleted_at" field.
+func (m *UserOSSRepositoryMutation) ClearDeletedAt() {
+	m.deleted_at = nil
+	m.clearedFields[userossrepository.FieldDeletedAt] = struct{}{}
+}
+
+// DeletedAtCleared returns if the "deleted_at" field was cleared in this mutation.
+func (m *UserOSSRepositoryMutation) DeletedAtCleared() bool {
+	_, ok := m.clearedFields[userossrepository.FieldDeletedAt]
+	return ok
+}
+
+// ResetDeletedAt resets all changes to the "deleted_at" field.
+func (m *UserOSSRepositoryMutation) ResetDeletedAt() {
+	m.deleted_at = nil
+	delete(m.clearedFields, userossrepository.FieldDeletedAt)
+}
+
+// SetUserID sets the "user_id" field.
+func (m *UserOSSRepositoryMutation) SetUserID(i int64) {
+	m.user_id = &i
+	m.adduser_id = nil
+}
+
+// UserID returns the value of the "user_id" field in the mutation.
+func (m *UserOSSRepositoryMutation) UserID() (r int64, exists bool) {
+	v := m.user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUserID returns the old "user_id" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldUserID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUserID: %w", err)
+	}
+	return oldValue.UserID, nil
+}
+
+// AddUserID adds i to the "user_id" field.
+func (m *UserOSSRepositoryMutation) AddUserID(i int64) {
+	if m.adduser_id != nil {
+		*m.adduser_id += i
+	} else {
+		m.adduser_id = &i
+	}
+}
+
+// AddedUserID returns the value that was added to the "user_id" field in this mutation.
+func (m *UserOSSRepositoryMutation) AddedUserID() (r int64, exists bool) {
+	v := m.adduser_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetUserID resets all changes to the "user_id" field.
+func (m *UserOSSRepositoryMutation) ResetUserID() {
+	m.user_id = nil
+	m.adduser_id = nil
+}
+
+// SetProvider sets the "provider" field.
+func (m *UserOSSRepositoryMutation) SetProvider(s string) {
+	m.provider = &s
+}
+
+// Provider returns the value of the "provider" field in the mutation.
+func (m *UserOSSRepositoryMutation) Provider() (r string, exists bool) {
+	v := m.provider
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldProvider returns the old "provider" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldProvider(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldProvider is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldProvider requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldProvider: %w", err)
+	}
+	return oldValue.Provider, nil
+}
+
+// ResetProvider resets all changes to the "provider" field.
+func (m *UserOSSRepositoryMutation) ResetProvider() {
+	m.provider = nil
+}
+
+// SetBucket sets the "bucket" field.
+func (m *UserOSSRepositoryMutation) SetBucket(s string) {
+	m.bucket = &s
+}
+
+// Bucket returns the value of the "bucket" field in the mutation.
+func (m *UserOSSRepositoryMutation) Bucket() (r string, exists bool) {
+	v := m.bucket
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBucket returns the old "bucket" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldBucket(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBucket is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBucket requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBucket: %w", err)
+	}
+	return oldValue.Bucket, nil
+}
+
+// ResetBucket resets all changes to the "bucket" field.
+func (m *UserOSSRepositoryMutation) ResetBucket() {
+	m.bucket = nil
+}
+
+// SetDomain sets the "domain" field.
+func (m *UserOSSRepositoryMutation) SetDomain(s string) {
+	m.domain = &s
+}
+
+// Domain returns the value of the "domain" field in the mutation.
+func (m *UserOSSRepositoryMutation) Domain() (r string, exists bool) {
+	v := m.domain
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDomain returns the old "domain" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldDomain(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDomain is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDomain requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDomain: %w", err)
+	}
+	return oldValue.Domain, nil
+}
+
+// ResetDomain resets all changes to the "domain" field.
+func (m *UserOSSRepositoryMutation) ResetDomain() {
+	m.domain = nil
+}
+
+// SetRegion sets the "region" field.
+func (m *UserOSSRepositoryMutation) SetRegion(s string) {
+	m.region = &s
+}
+
+// Region returns the value of the "region" field in the mutation.
+func (m *UserOSSRepositoryMutation) Region() (r string, exists bool) {
+	v := m.region
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRegion returns the old "region" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldRegion(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRegion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRegion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRegion: %w", err)
+	}
+	return oldValue.Region, nil
+}
+
+// ResetRegion resets all changes to the "region" field.
+func (m *UserOSSRepositoryMutation) ResetRegion() {
+	m.region = nil
+}
+
+// SetEndpoint sets the "endpoint" field.
+func (m *UserOSSRepositoryMutation) SetEndpoint(s string) {
+	m.endpoint = &s
+}
+
+// Endpoint returns the value of the "endpoint" field in the mutation.
+func (m *UserOSSRepositoryMutation) Endpoint() (r string, exists bool) {
+	v := m.endpoint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEndpoint returns the old "endpoint" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldEndpoint(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEndpoint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEndpoint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEndpoint: %w", err)
+	}
+	return oldValue.Endpoint, nil
+}
+
+// ResetEndpoint resets all changes to the "endpoint" field.
+func (m *UserOSSRepositoryMutation) ResetEndpoint() {
+	m.endpoint = nil
+}
+
+// SetAccessKeyID sets the "access_key_id" field.
+func (m *UserOSSRepositoryMutation) SetAccessKeyID(s string) {
+	m.access_key_id = &s
+}
+
+// AccessKeyID returns the value of the "access_key_id" field in the mutation.
+func (m *UserOSSRepositoryMutation) AccessKeyID() (r string, exists bool) {
+	v := m.access_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccessKeyID returns the old "access_key_id" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldAccessKeyID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccessKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccessKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccessKeyID: %w", err)
+	}
+	return oldValue.AccessKeyID, nil
+}
+
+// ResetAccessKeyID resets all changes to the "access_key_id" field.
+func (m *UserOSSRepositoryMutation) ResetAccessKeyID() {
+	m.access_key_id = nil
+}
+
+// SetSecretEncrypted sets the "secret_encrypted" field.
+func (m *UserOSSRepositoryMutation) SetSecretEncrypted(s string) {
+	m.secret_encrypted = &s
+}
+
+// SecretEncrypted returns the value of the "secret_encrypted" field in the mutation.
+func (m *UserOSSRepositoryMutation) SecretEncrypted() (r string, exists bool) {
+	v := m.secret_encrypted
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretEncrypted returns the old "secret_encrypted" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldSecretEncrypted(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretEncrypted is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretEncrypted requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretEncrypted: %w", err)
+	}
+	return oldValue.SecretEncrypted, nil
+}
+
+// ResetSecretEncrypted resets all changes to the "secret_encrypted" field.
+func (m *UserOSSRepositoryMutation) ResetSecretEncrypted() {
+	m.secret_encrypted = nil
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *UserOSSRepositoryMutation) SetAccountID(s string) {
+	m.account_id = &s
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *UserOSSRepositoryMutation) AccountID() (r string, exists bool) {
+	v := m.account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldAccountID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *UserOSSRepositoryMutation) ResetAccountID() {
+	m.account_id = nil
+}
+
+// SetForcePathStyle sets the "force_path_style" field.
+func (m *UserOSSRepositoryMutation) SetForcePathStyle(b bool) {
+	m.force_path_style = &b
+}
+
+// ForcePathStyle returns the value of the "force_path_style" field in the mutation.
+func (m *UserOSSRepositoryMutation) ForcePathStyle() (r bool, exists bool) {
+	v := m.force_path_style
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldForcePathStyle returns the old "force_path_style" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldForcePathStyle(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldForcePathStyle is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldForcePathStyle requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldForcePathStyle: %w", err)
+	}
+	return oldValue.ForcePathStyle, nil
+}
+
+// ResetForcePathStyle resets all changes to the "force_path_style" field.
+func (m *UserOSSRepositoryMutation) ResetForcePathStyle() {
+	m.force_path_style = nil
+}
+
+// SetBucketURL sets the "bucket_url" field.
+func (m *UserOSSRepositoryMutation) SetBucketURL(s string) {
+	m.bucket_url = &s
+}
+
+// BucketURL returns the value of the "bucket_url" field in the mutation.
+func (m *UserOSSRepositoryMutation) BucketURL() (r string, exists bool) {
+	v := m.bucket_url
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldBucketURL returns the old "bucket_url" field's value of the UserOSSRepository entity.
+// If the UserOSSRepository object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserOSSRepositoryMutation) OldBucketURL(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldBucketURL is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldBucketURL requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldBucketURL: %w", err)
+	}
+	return oldValue.BucketURL, nil
+}
+
+// ResetBucketURL resets all changes to the "bucket_url" field.
+func (m *UserOSSRepositoryMutation) ResetBucketURL() {
+	m.bucket_url = nil
+}
+
+// Where appends a list predicates to the UserOSSRepositoryMutation builder.
+func (m *UserOSSRepositoryMutation) Where(ps ...predicate.UserOSSRepository) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the UserOSSRepositoryMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *UserOSSRepositoryMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.UserOSSRepository, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *UserOSSRepositoryMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *UserOSSRepositoryMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (UserOSSRepository).
+func (m *UserOSSRepositoryMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *UserOSSRepositoryMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.created_at != nil {
+		fields = append(fields, userossrepository.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, userossrepository.FieldUpdatedAt)
+	}
+	if m.deleted_at != nil {
+		fields = append(fields, userossrepository.FieldDeletedAt)
+	}
+	if m.user_id != nil {
+		fields = append(fields, userossrepository.FieldUserID)
+	}
+	if m.provider != nil {
+		fields = append(fields, userossrepository.FieldProvider)
+	}
+	if m.bucket != nil {
+		fields = append(fields, userossrepository.FieldBucket)
+	}
+	if m.domain != nil {
+		fields = append(fields, userossrepository.FieldDomain)
+	}
+	if m.region != nil {
+		fields = append(fields, userossrepository.FieldRegion)
+	}
+	if m.endpoint != nil {
+		fields = append(fields, userossrepository.FieldEndpoint)
+	}
+	if m.access_key_id != nil {
+		fields = append(fields, userossrepository.FieldAccessKeyID)
+	}
+	if m.secret_encrypted != nil {
+		fields = append(fields, userossrepository.FieldSecretEncrypted)
+	}
+	if m.account_id != nil {
+		fields = append(fields, userossrepository.FieldAccountID)
+	}
+	if m.force_path_style != nil {
+		fields = append(fields, userossrepository.FieldForcePathStyle)
+	}
+	if m.bucket_url != nil {
+		fields = append(fields, userossrepository.FieldBucketURL)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *UserOSSRepositoryMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case userossrepository.FieldCreatedAt:
+		return m.CreatedAt()
+	case userossrepository.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case userossrepository.FieldDeletedAt:
+		return m.DeletedAt()
+	case userossrepository.FieldUserID:
+		return m.UserID()
+	case userossrepository.FieldProvider:
+		return m.Provider()
+	case userossrepository.FieldBucket:
+		return m.Bucket()
+	case userossrepository.FieldDomain:
+		return m.Domain()
+	case userossrepository.FieldRegion:
+		return m.Region()
+	case userossrepository.FieldEndpoint:
+		return m.Endpoint()
+	case userossrepository.FieldAccessKeyID:
+		return m.AccessKeyID()
+	case userossrepository.FieldSecretEncrypted:
+		return m.SecretEncrypted()
+	case userossrepository.FieldAccountID:
+		return m.AccountID()
+	case userossrepository.FieldForcePathStyle:
+		return m.ForcePathStyle()
+	case userossrepository.FieldBucketURL:
+		return m.BucketURL()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *UserOSSRepositoryMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case userossrepository.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case userossrepository.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case userossrepository.FieldDeletedAt:
+		return m.OldDeletedAt(ctx)
+	case userossrepository.FieldUserID:
+		return m.OldUserID(ctx)
+	case userossrepository.FieldProvider:
+		return m.OldProvider(ctx)
+	case userossrepository.FieldBucket:
+		return m.OldBucket(ctx)
+	case userossrepository.FieldDomain:
+		return m.OldDomain(ctx)
+	case userossrepository.FieldRegion:
+		return m.OldRegion(ctx)
+	case userossrepository.FieldEndpoint:
+		return m.OldEndpoint(ctx)
+	case userossrepository.FieldAccessKeyID:
+		return m.OldAccessKeyID(ctx)
+	case userossrepository.FieldSecretEncrypted:
+		return m.OldSecretEncrypted(ctx)
+	case userossrepository.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case userossrepository.FieldForcePathStyle:
+		return m.OldForcePathStyle(ctx)
+	case userossrepository.FieldBucketURL:
+		return m.OldBucketURL(ctx)
+	}
+	return nil, fmt.Errorf("unknown UserOSSRepository field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UserOSSRepositoryMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case userossrepository.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case userossrepository.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case userossrepository.FieldDeletedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeletedAt(v)
+		return nil
+	case userossrepository.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUserID(v)
+		return nil
+	case userossrepository.FieldProvider:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetProvider(v)
+		return nil
+	case userossrepository.FieldBucket:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBucket(v)
+		return nil
+	case userossrepository.FieldDomain:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDomain(v)
+		return nil
+	case userossrepository.FieldRegion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRegion(v)
+		return nil
+	case userossrepository.FieldEndpoint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEndpoint(v)
+		return nil
+	case userossrepository.FieldAccessKeyID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccessKeyID(v)
+		return nil
+	case userossrepository.FieldSecretEncrypted:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretEncrypted(v)
+		return nil
+	case userossrepository.FieldAccountID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case userossrepository.FieldForcePathStyle:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetForcePathStyle(v)
+		return nil
+	case userossrepository.FieldBucketURL:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetBucketURL(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UserOSSRepository field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *UserOSSRepositoryMutation) AddedFields() []string {
+	var fields []string
+	if m.adduser_id != nil {
+		fields = append(fields, userossrepository.FieldUserID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *UserOSSRepositoryMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case userossrepository.FieldUserID:
+		return m.AddedUserID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *UserOSSRepositoryMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case userossrepository.FieldUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddUserID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown UserOSSRepository numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *UserOSSRepositoryMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(userossrepository.FieldDeletedAt) {
+		fields = append(fields, userossrepository.FieldDeletedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *UserOSSRepositoryMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *UserOSSRepositoryMutation) ClearField(name string) error {
+	switch name {
+	case userossrepository.FieldDeletedAt:
+		m.ClearDeletedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown UserOSSRepository nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *UserOSSRepositoryMutation) ResetField(name string) error {
+	switch name {
+	case userossrepository.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case userossrepository.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case userossrepository.FieldDeletedAt:
+		m.ResetDeletedAt()
+		return nil
+	case userossrepository.FieldUserID:
+		m.ResetUserID()
+		return nil
+	case userossrepository.FieldProvider:
+		m.ResetProvider()
+		return nil
+	case userossrepository.FieldBucket:
+		m.ResetBucket()
+		return nil
+	case userossrepository.FieldDomain:
+		m.ResetDomain()
+		return nil
+	case userossrepository.FieldRegion:
+		m.ResetRegion()
+		return nil
+	case userossrepository.FieldEndpoint:
+		m.ResetEndpoint()
+		return nil
+	case userossrepository.FieldAccessKeyID:
+		m.ResetAccessKeyID()
+		return nil
+	case userossrepository.FieldSecretEncrypted:
+		m.ResetSecretEncrypted()
+		return nil
+	case userossrepository.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case userossrepository.FieldForcePathStyle:
+		m.ResetForcePathStyle()
+		return nil
+	case userossrepository.FieldBucketURL:
+		m.ResetBucketURL()
+		return nil
+	}
+	return fmt.Errorf("unknown UserOSSRepository field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *UserOSSRepositoryMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *UserOSSRepositoryMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *UserOSSRepositoryMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *UserOSSRepositoryMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *UserOSSRepositoryMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *UserOSSRepositoryMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *UserOSSRepositoryMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown UserOSSRepository unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *UserOSSRepositoryMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown UserOSSRepository edge %s", name)
 }
 
 // UserPlatformQuotaMutation represents an operation that mutates the UserPlatformQuota nodes in the graph.

@@ -179,6 +179,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		return
 	}
 
+	// 余额模式在途预留（与计费同口径估算；计费任务扣减余额缓存后才释放）。
+	inflightDone, inflightErr := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, grokMediaInflightEstimate(endpoint, routingModel, requestInfo, body))
+	if inflightErr != nil {
+		status, code, message, retryAfter := billingErrorDetails(inflightErr)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.errorResponse(c, status, code, message)
+		return
+	}
+	defer inflightDone()
+
 	sessionSeed := body
 	if len(sessionSeed) == 0 && strings.TrimSpace(requestID) != "" {
 		sessionSeed = []byte(requestID)
@@ -457,6 +469,19 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					zap.Int("max_switches", maxAccountSwitches),
 				)
 				continue
+			}
+			if service.IsUserOSSStorageError(err) {
+				// Upstream already succeeded. Report success so object storage is not
+				// scored as an account failure, and do not switch accounts.
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, grokMediaScheduleModel(account, routingModel, nil), true, nil)
+				if !service.IsResponseCommitted(c) && c.Writer.Size() == writerSizeBeforeForward {
+					h.errorResponse(c, http.StatusBadGateway, "object_storage_error", service.UserOSSClientMessage)
+				}
+				reqLog.Warn("grok_media.user_oss_storage_failed",
+					zap.Int64("account_id", account.ID),
+					zap.String("op", userOSSStorageOp(err)),
+				)
+				return
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, grokMediaScheduleModel(account, routingModel, nil), false, nil)
 			if !service.IsResponseCommitted(c) && c.Writer.Size() == writerSizeBeforeForward {

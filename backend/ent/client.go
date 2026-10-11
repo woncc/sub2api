@@ -52,6 +52,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userossrepository"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 
@@ -137,6 +138,8 @@ type Client struct {
 	UserAttributeDefinition *UserAttributeDefinitionClient
 	// UserAttributeValue is the client for interacting with the UserAttributeValue builders.
 	UserAttributeValue *UserAttributeValueClient
+	// UserOSSRepository is the client for interacting with the UserOSSRepository builders.
+	UserOSSRepository *UserOSSRepositoryClient
 	// UserPlatformQuota is the client for interacting with the UserPlatformQuota builders.
 	UserPlatformQuota *UserPlatformQuotaClient
 	// UserSubscription is the client for interacting with the UserSubscription builders.
@@ -189,6 +192,7 @@ func (c *Client) init() {
 	c.UserAllowedGroup = NewUserAllowedGroupClient(c.config)
 	c.UserAttributeDefinition = NewUserAttributeDefinitionClient(c.config)
 	c.UserAttributeValue = NewUserAttributeValueClient(c.config)
+	c.UserOSSRepository = NewUserOSSRepositoryClient(c.config)
 	c.UserPlatformQuota = NewUserPlatformQuotaClient(c.config)
 	c.UserSubscription = NewUserSubscriptionClient(c.config)
 }
@@ -320,6 +324,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
 		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
 		UserAttributeValue:            NewUserAttributeValueClient(cfg),
+		UserOSSRepository:             NewUserOSSRepositoryClient(cfg),
 		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
 		UserSubscription:              NewUserSubscriptionClient(cfg),
 	}, nil
@@ -378,6 +383,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		UserAllowedGroup:              NewUserAllowedGroupClient(cfg),
 		UserAttributeDefinition:       NewUserAttributeDefinitionClient(cfg),
 		UserAttributeValue:            NewUserAttributeValueClient(cfg),
+		UserOSSRepository:             NewUserOSSRepositoryClient(cfg),
 		UserPlatformQuota:             NewUserPlatformQuotaClient(cfg),
 		UserSubscription:              NewUserSubscriptionClient(cfg),
 	}, nil
@@ -419,7 +425,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription,
+		c.UserOSSRepository, c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Use(hooks...)
 	}
@@ -439,7 +445,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
 		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
 		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription,
+		c.UserOSSRepository, c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -522,6 +528,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.UserAttributeDefinition.mutate(ctx, m)
 	case *UserAttributeValueMutation:
 		return c.UserAttributeValue.mutate(ctx, m)
+	case *UserOSSRepositoryMutation:
+		return c.UserOSSRepository.mutate(ctx, m)
 	case *UserPlatformQuotaMutation:
 		return c.UserPlatformQuota.mutate(ctx, m)
 	case *UserSubscriptionMutation:
@@ -6488,6 +6496,141 @@ func (c *UserAttributeValueClient) mutate(ctx context.Context, m *UserAttributeV
 	}
 }
 
+// UserOSSRepositoryClient is a client for the UserOSSRepository schema.
+type UserOSSRepositoryClient struct {
+	config
+}
+
+// NewUserOSSRepositoryClient returns a client for the UserOSSRepository from the given config.
+func NewUserOSSRepositoryClient(c config) *UserOSSRepositoryClient {
+	return &UserOSSRepositoryClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `userossrepository.Hooks(f(g(h())))`.
+func (c *UserOSSRepositoryClient) Use(hooks ...Hook) {
+	c.hooks.UserOSSRepository = append(c.hooks.UserOSSRepository, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `userossrepository.Intercept(f(g(h())))`.
+func (c *UserOSSRepositoryClient) Intercept(interceptors ...Interceptor) {
+	c.inters.UserOSSRepository = append(c.inters.UserOSSRepository, interceptors...)
+}
+
+// Create returns a builder for creating a UserOSSRepository entity.
+func (c *UserOSSRepositoryClient) Create() *UserOSSRepositoryCreate {
+	mutation := newUserOSSRepositoryMutation(c.config, OpCreate)
+	return &UserOSSRepositoryCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of UserOSSRepository entities.
+func (c *UserOSSRepositoryClient) CreateBulk(builders ...*UserOSSRepositoryCreate) *UserOSSRepositoryCreateBulk {
+	return &UserOSSRepositoryCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *UserOSSRepositoryClient) MapCreateBulk(slice any, setFunc func(*UserOSSRepositoryCreate, int)) *UserOSSRepositoryCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &UserOSSRepositoryCreateBulk{err: fmt.Errorf("calling to UserOSSRepositoryClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*UserOSSRepositoryCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &UserOSSRepositoryCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for UserOSSRepository.
+func (c *UserOSSRepositoryClient) Update() *UserOSSRepositoryUpdate {
+	mutation := newUserOSSRepositoryMutation(c.config, OpUpdate)
+	return &UserOSSRepositoryUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *UserOSSRepositoryClient) UpdateOne(_m *UserOSSRepository) *UserOSSRepositoryUpdateOne {
+	mutation := newUserOSSRepositoryMutation(c.config, OpUpdateOne, withUserOSSRepository(_m))
+	return &UserOSSRepositoryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *UserOSSRepositoryClient) UpdateOneID(id int64) *UserOSSRepositoryUpdateOne {
+	mutation := newUserOSSRepositoryMutation(c.config, OpUpdateOne, withUserOSSRepositoryID(id))
+	return &UserOSSRepositoryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for UserOSSRepository.
+func (c *UserOSSRepositoryClient) Delete() *UserOSSRepositoryDelete {
+	mutation := newUserOSSRepositoryMutation(c.config, OpDelete)
+	return &UserOSSRepositoryDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *UserOSSRepositoryClient) DeleteOne(_m *UserOSSRepository) *UserOSSRepositoryDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *UserOSSRepositoryClient) DeleteOneID(id int64) *UserOSSRepositoryDeleteOne {
+	builder := c.Delete().Where(userossrepository.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &UserOSSRepositoryDeleteOne{builder}
+}
+
+// Query returns a query builder for UserOSSRepository.
+func (c *UserOSSRepositoryClient) Query() *UserOSSRepositoryQuery {
+	return &UserOSSRepositoryQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeUserOSSRepository},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a UserOSSRepository entity by its id.
+func (c *UserOSSRepositoryClient) Get(ctx context.Context, id int64) (*UserOSSRepository, error) {
+	return c.Query().Where(userossrepository.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *UserOSSRepositoryClient) GetX(ctx context.Context, id int64) *UserOSSRepository {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *UserOSSRepositoryClient) Hooks() []Hook {
+	hooks := c.hooks.UserOSSRepository
+	return append(hooks[:len(hooks):len(hooks)], userossrepository.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *UserOSSRepositoryClient) Interceptors() []Interceptor {
+	inters := c.inters.UserOSSRepository
+	return append(inters[:len(inters):len(inters)], userossrepository.Interceptors[:]...)
+}
+
+func (c *UserOSSRepositoryClient) mutate(ctx context.Context, m *UserOSSRepositoryMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&UserOSSRepositoryCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&UserOSSRepositoryUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&UserOSSRepositoryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&UserOSSRepositoryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown UserOSSRepository mutation op: %q", m.Op())
+	}
+}
+
 // UserPlatformQuotaClient is a client for the UserPlatformQuota schema.
 type UserPlatformQuotaClient struct {
 	config
@@ -6849,8 +6992,8 @@ type (
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
 		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Hook
+		UserAttributeDefinition, UserAttributeValue, UserOSSRepository,
+		UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
@@ -6861,8 +7004,8 @@ type (
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
 		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
 		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Interceptor
+		UserAttributeDefinition, UserAttributeValue, UserOSSRepository,
+		UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

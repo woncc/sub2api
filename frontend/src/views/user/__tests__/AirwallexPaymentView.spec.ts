@@ -33,6 +33,10 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ user: { id: 1 } }),
+}))
+
 vi.mock('@airwallex/components-sdk', () => ({
   init: airwallexInit,
 }))
@@ -56,6 +60,7 @@ function airwallexSnapshot(overrides: Partial<PaymentRecoverySnapshot> = {}): Pa
     paymentMode: '',
     resumeToken: 'resume-awx',
     createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
+    userId: 1,
     ...overrides,
   }
 }

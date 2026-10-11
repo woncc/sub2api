@@ -43,6 +43,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userossrepository"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -906,7 +907,21 @@ func init() {
 	// compositemodelroute.DefaultTargetPlatform holds the default value on creation for the target_platform field.
 	compositemodelroute.DefaultTargetPlatform = compositemodelrouteDescTargetPlatform.Default.(string)
 	// compositemodelroute.TargetPlatformValidator is a validator for the "target_platform" field. It is called by the builders before save.
-	compositemodelroute.TargetPlatformValidator = compositemodelrouteDescTargetPlatform.Validators[0].(func(string) error)
+	compositemodelroute.TargetPlatformValidator = func() func(string) error {
+		validators := compositemodelrouteDescTargetPlatform.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(target_platform string) error {
+			for _, fn := range fns {
+				if err := fn(target_platform); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	// compositemodelrouteDescUpstreamModel is the schema descriptor for upstream_model field.
 	compositemodelrouteDescUpstreamModel := compositemodelrouteFields[4].Descriptor()
 	// compositemodelroute.DefaultUpstreamModel holds the default value on creation for the upstream_model field.
@@ -1323,70 +1338,74 @@ func init() {
 	paymentorderDescFeeRate := paymentorderFields[6].Descriptor()
 	// paymentorder.DefaultFeeRate holds the default value on creation for the fee_rate field.
 	paymentorder.DefaultFeeRate = paymentorderDescFeeRate.Default.(float64)
+	// paymentorderDescBonusAmount is the schema descriptor for bonus_amount field.
+	paymentorderDescBonusAmount := paymentorderFields[7].Descriptor()
+	// paymentorder.DefaultBonusAmount holds the default value on creation for the bonus_amount field.
+	paymentorder.DefaultBonusAmount = paymentorderDescBonusAmount.Default.(float64)
 	// paymentorderDescRechargeCode is the schema descriptor for recharge_code field.
-	paymentorderDescRechargeCode := paymentorderFields[7].Descriptor()
+	paymentorderDescRechargeCode := paymentorderFields[8].Descriptor()
 	// paymentorder.RechargeCodeValidator is a validator for the "recharge_code" field. It is called by the builders before save.
 	paymentorder.RechargeCodeValidator = paymentorderDescRechargeCode.Validators[0].(func(string) error)
 	// paymentorderDescOutTradeNo is the schema descriptor for out_trade_no field.
-	paymentorderDescOutTradeNo := paymentorderFields[8].Descriptor()
+	paymentorderDescOutTradeNo := paymentorderFields[9].Descriptor()
 	// paymentorder.DefaultOutTradeNo holds the default value on creation for the out_trade_no field.
 	paymentorder.DefaultOutTradeNo = paymentorderDescOutTradeNo.Default.(string)
 	// paymentorder.OutTradeNoValidator is a validator for the "out_trade_no" field. It is called by the builders before save.
 	paymentorder.OutTradeNoValidator = paymentorderDescOutTradeNo.Validators[0].(func(string) error)
 	// paymentorderDescPaymentType is the schema descriptor for payment_type field.
-	paymentorderDescPaymentType := paymentorderFields[9].Descriptor()
+	paymentorderDescPaymentType := paymentorderFields[10].Descriptor()
 	// paymentorder.PaymentTypeValidator is a validator for the "payment_type" field. It is called by the builders before save.
 	paymentorder.PaymentTypeValidator = paymentorderDescPaymentType.Validators[0].(func(string) error)
 	// paymentorderDescPaymentTradeNo is the schema descriptor for payment_trade_no field.
-	paymentorderDescPaymentTradeNo := paymentorderFields[10].Descriptor()
+	paymentorderDescPaymentTradeNo := paymentorderFields[11].Descriptor()
 	// paymentorder.PaymentTradeNoValidator is a validator for the "payment_trade_no" field. It is called by the builders before save.
 	paymentorder.PaymentTradeNoValidator = paymentorderDescPaymentTradeNo.Validators[0].(func(string) error)
 	// paymentorderDescOrderType is the schema descriptor for order_type field.
-	paymentorderDescOrderType := paymentorderFields[14].Descriptor()
+	paymentorderDescOrderType := paymentorderFields[15].Descriptor()
 	// paymentorder.DefaultOrderType holds the default value on creation for the order_type field.
 	paymentorder.DefaultOrderType = paymentorderDescOrderType.Default.(string)
 	// paymentorder.OrderTypeValidator is a validator for the "order_type" field. It is called by the builders before save.
 	paymentorder.OrderTypeValidator = paymentorderDescOrderType.Validators[0].(func(string) error)
 	// paymentorderDescProviderInstanceID is the schema descriptor for provider_instance_id field.
-	paymentorderDescProviderInstanceID := paymentorderFields[18].Descriptor()
+	paymentorderDescProviderInstanceID := paymentorderFields[19].Descriptor()
 	// paymentorder.ProviderInstanceIDValidator is a validator for the "provider_instance_id" field. It is called by the builders before save.
 	paymentorder.ProviderInstanceIDValidator = paymentorderDescProviderInstanceID.Validators[0].(func(string) error)
 	// paymentorderDescProviderKey is the schema descriptor for provider_key field.
-	paymentorderDescProviderKey := paymentorderFields[19].Descriptor()
+	paymentorderDescProviderKey := paymentorderFields[20].Descriptor()
 	// paymentorder.ProviderKeyValidator is a validator for the "provider_key" field. It is called by the builders before save.
 	paymentorder.ProviderKeyValidator = paymentorderDescProviderKey.Validators[0].(func(string) error)
 	// paymentorderDescStatus is the schema descriptor for status field.
-	paymentorderDescStatus := paymentorderFields[21].Descriptor()
+	paymentorderDescStatus := paymentorderFields[22].Descriptor()
 	// paymentorder.DefaultStatus holds the default value on creation for the status field.
 	paymentorder.DefaultStatus = paymentorderDescStatus.Default.(string)
 	// paymentorder.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	paymentorder.StatusValidator = paymentorderDescStatus.Validators[0].(func(string) error)
 	// paymentorderDescRefundAmount is the schema descriptor for refund_amount field.
-	paymentorderDescRefundAmount := paymentorderFields[22].Descriptor()
+	paymentorderDescRefundAmount := paymentorderFields[23].Descriptor()
 	// paymentorder.DefaultRefundAmount holds the default value on creation for the refund_amount field.
 	paymentorder.DefaultRefundAmount = paymentorderDescRefundAmount.Default.(float64)
 	// paymentorderDescForceRefund is the schema descriptor for force_refund field.
-	paymentorderDescForceRefund := paymentorderFields[25].Descriptor()
+	paymentorderDescForceRefund := paymentorderFields[26].Descriptor()
 	// paymentorder.DefaultForceRefund holds the default value on creation for the force_refund field.
 	paymentorder.DefaultForceRefund = paymentorderDescForceRefund.Default.(bool)
 	// paymentorderDescRefundRequestedBy is the schema descriptor for refund_requested_by field.
-	paymentorderDescRefundRequestedBy := paymentorderFields[28].Descriptor()
+	paymentorderDescRefundRequestedBy := paymentorderFields[29].Descriptor()
 	// paymentorder.RefundRequestedByValidator is a validator for the "refund_requested_by" field. It is called by the builders before save.
 	paymentorder.RefundRequestedByValidator = paymentorderDescRefundRequestedBy.Validators[0].(func(string) error)
 	// paymentorderDescClientIP is the schema descriptor for client_ip field.
-	paymentorderDescClientIP := paymentorderFields[34].Descriptor()
+	paymentorderDescClientIP := paymentorderFields[35].Descriptor()
 	// paymentorder.ClientIPValidator is a validator for the "client_ip" field. It is called by the builders before save.
 	paymentorder.ClientIPValidator = paymentorderDescClientIP.Validators[0].(func(string) error)
 	// paymentorderDescSrcHost is the schema descriptor for src_host field.
-	paymentorderDescSrcHost := paymentorderFields[35].Descriptor()
+	paymentorderDescSrcHost := paymentorderFields[36].Descriptor()
 	// paymentorder.SrcHostValidator is a validator for the "src_host" field. It is called by the builders before save.
 	paymentorder.SrcHostValidator = paymentorderDescSrcHost.Validators[0].(func(string) error)
 	// paymentorderDescCreatedAt is the schema descriptor for created_at field.
-	paymentorderDescCreatedAt := paymentorderFields[37].Descriptor()
+	paymentorderDescCreatedAt := paymentorderFields[38].Descriptor()
 	// paymentorder.DefaultCreatedAt holds the default value on creation for the created_at field.
 	paymentorder.DefaultCreatedAt = paymentorderDescCreatedAt.Default.(func() time.Time)
 	// paymentorderDescUpdatedAt is the schema descriptor for updated_at field.
-	paymentorderDescUpdatedAt := paymentorderFields[38].Descriptor()
+	paymentorderDescUpdatedAt := paymentorderFields[39].Descriptor()
 	// paymentorder.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	paymentorder.DefaultUpdatedAt = paymentorderDescUpdatedAt.Default.(func() time.Time)
 	// paymentorder.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
@@ -2387,6 +2406,105 @@ func init() {
 	userattributevalueDescValue := userattributevalueFields[2].Descriptor()
 	// userattributevalue.DefaultValue holds the default value on creation for the value field.
 	userattributevalue.DefaultValue = userattributevalueDescValue.Default.(string)
+	userossrepositoryMixin := schema.UserOSSRepository{}.Mixin()
+	userossrepositoryMixinHooks1 := userossrepositoryMixin[1].Hooks()
+	userossrepository.Hooks[0] = userossrepositoryMixinHooks1[0]
+	userossrepositoryMixinInters1 := userossrepositoryMixin[1].Interceptors()
+	userossrepository.Interceptors[0] = userossrepositoryMixinInters1[0]
+	userossrepositoryMixinFields0 := userossrepositoryMixin[0].Fields()
+	_ = userossrepositoryMixinFields0
+	userossrepositoryFields := schema.UserOSSRepository{}.Fields()
+	_ = userossrepositoryFields
+	// userossrepositoryDescCreatedAt is the schema descriptor for created_at field.
+	userossrepositoryDescCreatedAt := userossrepositoryMixinFields0[0].Descriptor()
+	// userossrepository.DefaultCreatedAt holds the default value on creation for the created_at field.
+	userossrepository.DefaultCreatedAt = userossrepositoryDescCreatedAt.Default.(func() time.Time)
+	// userossrepositoryDescUpdatedAt is the schema descriptor for updated_at field.
+	userossrepositoryDescUpdatedAt := userossrepositoryMixinFields0[1].Descriptor()
+	// userossrepository.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	userossrepository.DefaultUpdatedAt = userossrepositoryDescUpdatedAt.Default.(func() time.Time)
+	// userossrepository.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	userossrepository.UpdateDefaultUpdatedAt = userossrepositoryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// userossrepositoryDescProvider is the schema descriptor for provider field.
+	userossrepositoryDescProvider := userossrepositoryFields[1].Descriptor()
+	// userossrepository.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	userossrepository.ProviderValidator = func() func(string) error {
+		validators := userossrepositoryDescProvider.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(provider string) error {
+			for _, fn := range fns {
+				if err := fn(provider); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// userossrepositoryDescBucket is the schema descriptor for bucket field.
+	userossrepositoryDescBucket := userossrepositoryFields[2].Descriptor()
+	// userossrepository.BucketValidator is a validator for the "bucket" field. It is called by the builders before save.
+	userossrepository.BucketValidator = func() func(string) error {
+		validators := userossrepositoryDescBucket.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(bucket string) error {
+			for _, fn := range fns {
+				if err := fn(bucket); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// userossrepositoryDescDomain is the schema descriptor for domain field.
+	userossrepositoryDescDomain := userossrepositoryFields[3].Descriptor()
+	// userossrepository.DefaultDomain holds the default value on creation for the domain field.
+	userossrepository.DefaultDomain = userossrepositoryDescDomain.Default.(string)
+	// userossrepository.DomainValidator is a validator for the "domain" field. It is called by the builders before save.
+	userossrepository.DomainValidator = userossrepositoryDescDomain.Validators[0].(func(string) error)
+	// userossrepositoryDescRegion is the schema descriptor for region field.
+	userossrepositoryDescRegion := userossrepositoryFields[4].Descriptor()
+	// userossrepository.DefaultRegion holds the default value on creation for the region field.
+	userossrepository.DefaultRegion = userossrepositoryDescRegion.Default.(string)
+	// userossrepository.RegionValidator is a validator for the "region" field. It is called by the builders before save.
+	userossrepository.RegionValidator = userossrepositoryDescRegion.Validators[0].(func(string) error)
+	// userossrepositoryDescEndpoint is the schema descriptor for endpoint field.
+	userossrepositoryDescEndpoint := userossrepositoryFields[5].Descriptor()
+	// userossrepository.DefaultEndpoint holds the default value on creation for the endpoint field.
+	userossrepository.DefaultEndpoint = userossrepositoryDescEndpoint.Default.(string)
+	// userossrepository.EndpointValidator is a validator for the "endpoint" field. It is called by the builders before save.
+	userossrepository.EndpointValidator = userossrepositoryDescEndpoint.Validators[0].(func(string) error)
+	// userossrepositoryDescAccessKeyID is the schema descriptor for access_key_id field.
+	userossrepositoryDescAccessKeyID := userossrepositoryFields[6].Descriptor()
+	// userossrepository.DefaultAccessKeyID holds the default value on creation for the access_key_id field.
+	userossrepository.DefaultAccessKeyID = userossrepositoryDescAccessKeyID.Default.(string)
+	// userossrepository.AccessKeyIDValidator is a validator for the "access_key_id" field. It is called by the builders before save.
+	userossrepository.AccessKeyIDValidator = userossrepositoryDescAccessKeyID.Validators[0].(func(string) error)
+	// userossrepositoryDescSecretEncrypted is the schema descriptor for secret_encrypted field.
+	userossrepositoryDescSecretEncrypted := userossrepositoryFields[7].Descriptor()
+	// userossrepository.DefaultSecretEncrypted holds the default value on creation for the secret_encrypted field.
+	userossrepository.DefaultSecretEncrypted = userossrepositoryDescSecretEncrypted.Default.(string)
+	// userossrepositoryDescAccountID is the schema descriptor for account_id field.
+	userossrepositoryDescAccountID := userossrepositoryFields[8].Descriptor()
+	// userossrepository.DefaultAccountID holds the default value on creation for the account_id field.
+	userossrepository.DefaultAccountID = userossrepositoryDescAccountID.Default.(string)
+	// userossrepository.AccountIDValidator is a validator for the "account_id" field. It is called by the builders before save.
+	userossrepository.AccountIDValidator = userossrepositoryDescAccountID.Validators[0].(func(string) error)
+	// userossrepositoryDescForcePathStyle is the schema descriptor for force_path_style field.
+	userossrepositoryDescForcePathStyle := userossrepositoryFields[9].Descriptor()
+	// userossrepository.DefaultForcePathStyle holds the default value on creation for the force_path_style field.
+	userossrepository.DefaultForcePathStyle = userossrepositoryDescForcePathStyle.Default.(bool)
+	// userossrepositoryDescBucketURL is the schema descriptor for bucket_url field.
+	userossrepositoryDescBucketURL := userossrepositoryFields[10].Descriptor()
+	// userossrepository.DefaultBucketURL holds the default value on creation for the bucket_url field.
+	userossrepository.DefaultBucketURL = userossrepositoryDescBucketURL.Default.(string)
+	// userossrepository.BucketURLValidator is a validator for the "bucket_url" field. It is called by the builders before save.
+	userossrepository.BucketURLValidator = userossrepositoryDescBucketURL.Validators[0].(func(string) error)
 	userplatformquotaMixin := schema.UserPlatformQuota{}.Mixin()
 	userplatformquotaMixinHooks1 := userplatformquotaMixin[1].Hooks()
 	userplatformquota.Hooks[0] = userplatformquotaMixinHooks1[0]

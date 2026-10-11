@@ -131,6 +131,7 @@ const wechatQrUrl = ref('')
 const redirecting = ref(false)
 const showPaymentElement = ref(false)
 
+let disposed = false
 let stripeInstance: Stripe | null = null
 let elementsInstance: StripeElements | null = null
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
@@ -172,6 +173,7 @@ onMounted(async () => {
 
     const { loadStripe } = await import('@stripe/stripe-js/pure')
     const stripe = await loadStripe(publishableKey)
+    if (disposed) return
     if (!stripe) { initError.value = t('payment.stripeLoadFailed'); return }
 
     stripeInstance = stripe
@@ -246,6 +248,7 @@ async function confirmWechatPay(stripe: Stripe, clientSecret: string) {
 }
 
 function mountPaymentElement(stripe: Stripe, clientSecret: string) {
+  if (disposed) return
   const isDark = document.documentElement.classList.contains('dark')
   const elements = stripe.elements({
     clientSecret,
@@ -289,7 +292,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 function startPolling() {
   const orderId = Number(route.query.order_id)
-  if (!orderId) return
+  if (!orderId || disposed) return
   pollTimer = setInterval(async () => {
     const o = await paymentStore.pollOrderStatus(orderId)
     if (!o) return
@@ -303,6 +306,7 @@ function startPolling() {
 }
 
 function scheduleClose() {
+  if (disposed) return
   if (window.opener) {
     redirectTimer = setTimeout(() => { window.close() }, 2000)
   } else {
@@ -313,6 +317,7 @@ function scheduleClose() {
 }
 
 onUnmounted(() => {
+  disposed = true
   if (redirectTimer) clearTimeout(redirectTimer)
   if (pollTimer) clearInterval(pollTimer)
 })
