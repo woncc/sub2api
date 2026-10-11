@@ -49,6 +49,10 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ user: { id: 1 } }),
+}))
+
 vi.mock('@/stores/payment', () => ({
   usePaymentStore: () => paymentStore,
 }))

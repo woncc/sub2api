@@ -58,6 +58,7 @@ vi.mock('vue-i18n', async () => {
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
     user: {
+      id: 1,
       username: 'demo-user',
       balance: 0,
     },
@@ -554,6 +555,7 @@ describe('PaymentView payment recovery', () => {
       paymentMode: 'popup',
       resumeToken: '',
       createdAt: Date.now(),
+      userId: 1,
     }))
 
     const wrapper = shallowMount(PaymentView, {
@@ -705,6 +707,7 @@ describe('PaymentView WeChat JSAPI flow', () => {
       paymentMode: 'popup',
       resumeToken: '',
       createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
+      userId: 1,
     }))
 
     shallowMount(PaymentView, {

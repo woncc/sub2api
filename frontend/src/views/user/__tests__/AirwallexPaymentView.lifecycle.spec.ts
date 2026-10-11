@@ -5,6 +5,7 @@ import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 
 const mocks = vi.hoisted(() => ({ init: vi.fn(), redirectToCheckout: vi.fn() }))
 vi.mock('@airwallex/components-sdk', () => ({ init: mocks.init }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 1 } }) }))
 vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('vue-i18n', async () => ({
   ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
@@ -20,7 +21,7 @@ beforeEach(() => {
     paymentType: 'airwallex', payUrl: '/payment/airwallex', outTradeNo: 'sub2_awx_101',
     clientSecret: 'awx_client_secret', intentId: 'int_awx_101', currency: 'CNY',
     countryCode: 'CN', paymentEnv: 'demo', payAmount: 88, orderType: 'balance',
-    paymentMode: '', resumeToken: 'resume-awx', createdAt: Date.UTC(2099, 0, 1)
+    paymentMode: '', resumeToken: 'resume-awx', createdAt: Date.UTC(2099, 0, 1), userId: 1
   }))
 })
 
