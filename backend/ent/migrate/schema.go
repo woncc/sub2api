@@ -1951,6 +1951,40 @@ var (
 			},
 		},
 	}
+	// UserOssRepositoriesColumns holds the columns for the "user_oss_repositories" table.
+	UserOssRepositoriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "provider", Type: field.TypeString, Size: 32},
+		{Name: "bucket", Type: field.TypeString, Size: 512},
+		{Name: "domain", Type: field.TypeString, Size: 512, Default: ""},
+		{Name: "region", Type: field.TypeString, Size: 128, Default: ""},
+		{Name: "endpoint", Type: field.TypeString, Size: 512, Default: ""},
+		{Name: "access_key_id", Type: field.TypeString, Size: 256, Default: ""},
+		{Name: "secret_encrypted", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "account_id", Type: field.TypeString, Size: 128, Default: ""},
+		{Name: "force_path_style", Type: field.TypeBool, Default: false},
+		{Name: "bucket_url", Type: field.TypeString, Size: 512, Default: ""},
+	}
+	// UserOssRepositoriesTable holds the schema information for the "user_oss_repositories" table.
+	UserOssRepositoriesTable = &schema.Table{
+		Name:       "user_oss_repositories",
+		Columns:    UserOssRepositoriesColumns,
+		PrimaryKey: []*schema.Column{UserOssRepositoriesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "userossrepository_user_id",
+				Unique:  false,
+				Columns: []*schema.Column{UserOssRepositoriesColumns[4]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "deleted_at IS NULL",
+				},
+			},
+		},
+	}
 	// UserPlatformQuotasColumns holds the columns for the "user_platform_quotas" table.
 	UserPlatformQuotasColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2126,6 +2160,7 @@ var (
 		UserAllowedGroupsTable,
 		UserAttributeDefinitionsTable,
 		UserAttributeValuesTable,
+		UserOssRepositoriesTable,
 		UserPlatformQuotasTable,
 		UserSubscriptionsTable,
 	}
@@ -2274,6 +2309,9 @@ func init() {
 	UserAttributeValuesTable.ForeignKeys[1].RefTable = UserAttributeDefinitionsTable
 	UserAttributeValuesTable.Annotation = &entsql.Annotation{
 		Table: "user_attribute_values",
+	}
+	UserOssRepositoriesTable.Annotation = &entsql.Annotation{
+		Table: "user_oss_repositories",
 	}
 	UserPlatformQuotasTable.ForeignKeys[0].RefTable = UsersTable
 	UserPlatformQuotasTable.Annotation = &entsql.Annotation{

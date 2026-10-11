@@ -117,6 +117,9 @@ type UserAttributeDefinition func(*sql.Selector)
 // UserAttributeValue is the predicate function for userattributevalue builders.
 type UserAttributeValue func(*sql.Selector)
 
+// UserOSSRepository is the predicate function for userossrepository builders.
+type UserOSSRepository func(*sql.Selector)
+
 // UserPlatformQuota is the predicate function for userplatformquota builders.
 type UserPlatformQuota func(*sql.Selector)
 
