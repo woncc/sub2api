@@ -215,8 +215,10 @@ func (s *ImageTaskService) complete(ctx context.Context, id string, statusCode i
 		}
 		rewritten, err := s.userOSS.RewriteImageBody(ctx, *spec, id, result)
 		if err != nil {
-			logger.L().Error("image_task.user_oss_offload_failed", zap.String("task_id", id), zap.Error(err))
-			return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "failed to store generated image to object storage"))
+			// Log the storage error only. The task record uses a fixed message so
+			// SDK text (which can echo credentials) is not returned to the client.
+			logger.L().Error("image_task.user_oss_offload_failed", zap.String("task_id", id), zap.String("op", "rewrite_image"))
+			return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("object_storage_error", UserOSSClientMessage))
 		}
 		result = rewritten
 		return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
