@@ -780,6 +780,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		}
 	}
 	if isUserOSSVideoCreate(endpoint) {
+		// Binding failure returns UserOSSStorageError before the body is written.
+		// Do not attach the upstream task id: handing it back would let the client
+		// poll through platform storage and bypass the bound user store (#5).
 		if err := s.persistUserOSSBinding(c, extractGrokMediaVideoRequestID(respBody)); err != nil {
 			return nil, err
 		}

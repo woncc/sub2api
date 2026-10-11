@@ -257,9 +257,9 @@ func sanitizeOSSKeyPart(raw string) string {
 	var b strings.Builder
 	for _, r := range raw {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
-			b.WriteRune(r)
+			_, _ = b.WriteRune(r)
 		} else {
-			b.WriteByte('-')
+			_ = b.WriteByte('-')
 		}
 	}
 	out := strings.Trim(b.String(), "-")
@@ -281,7 +281,11 @@ func (s *OpenAIGatewayService) rewriteUserOSSImage(c *gin.Context, taskID string
 	if !ok || spec.Defer {
 		return body, nil
 	}
-	return s.userOSS.RewriteImageBody(c.Request.Context(), spec, taskID, body)
+	rewritten, err := s.userOSS.RewriteImageBody(c.Request.Context(), spec, taskID, body)
+	if err != nil {
+		return nil, userOSSStorageError("rewrite_image", err)
+	}
+	return rewritten, nil
 }
 
 // rewriteUserOSSVideo uploads a completed video when the request or the create-time binding selected a user store.
@@ -298,7 +302,7 @@ func (s *OpenAIGatewayService) rewriteUserOSSVideo(c *gin.Context, requestID str
 		}
 		pending, err := s.LoadGrokVideoPendingBilling(c.Request.Context(), requestID, owner.UserID, owner.APIKeyID)
 		if err != nil {
-			return nil, false, fmt.Errorf("load user oss binding: %w", err)
+			return nil, false, userOSSStorageError("load_binding", fmt.Errorf("load user oss binding: %w", err))
 		}
 		if pending == nil || pending.OSSRepositoryID <= 0 {
 			return body, false, nil
@@ -307,7 +311,7 @@ func (s *OpenAIGatewayService) rewriteUserOSSVideo(c *gin.Context, requestID str
 	}
 	rewritten, err := s.userOSS.RewriteVideoBody(c.Request.Context(), spec, requestID, body)
 	if err != nil {
-		return nil, false, err
+		return nil, false, userOSSStorageError("rewrite_video", err)
 	}
 	if bytes.Equal(rewritten, body) {
 		return body, false, nil
@@ -335,15 +339,15 @@ func (s *OpenAIGatewayService) persistUserOSSBinding(c *gin.Context, requestID s
 	}
 	owner, ok := OSSOwnerFromContext(c.Request.Context())
 	if !ok {
-		return fmt.Errorf("user object storage binding is missing an owner")
+		return userOSSStorageError("bind", fmt.Errorf("user object storage binding is missing an owner"))
 	}
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
-		return fmt.Errorf("user object storage binding is missing a task id")
+		return userOSSStorageError("bind", fmt.Errorf("user object storage binding is missing a task id"))
 	}
 	pending, err := s.LoadGrokVideoPendingBilling(c.Request.Context(), requestID, owner.UserID, owner.APIKeyID)
 	if err != nil {
-		return fmt.Errorf("load user oss binding: %w", err)
+		return userOSSStorageError("bind", fmt.Errorf("load user oss binding: %w", err))
 	}
 	if pending == nil {
 		pending = &GrokVideoPendingBilling{CreatedAt: GrokVideoPendingCreatedAtNow()}
@@ -351,7 +355,7 @@ func (s *OpenAIGatewayService) persistUserOSSBinding(c *gin.Context, requestID s
 	pending.OSSRepositoryID = spec.RepoID
 	pending.OSSPath = spec.Prefix
 	if err := s.StoreGrokVideoPendingBilling(c.Request.Context(), requestID, owner.UserID, owner.APIKeyID, *pending); err != nil {
-		return fmt.Errorf("store user oss binding: %w", err)
+		return userOSSStorageError("bind", fmt.Errorf("store user oss binding: %w", err))
 	}
 	return nil
 }

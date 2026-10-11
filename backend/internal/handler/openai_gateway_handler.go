@@ -3773,6 +3773,12 @@ func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Contex
 
 // ensureForwardErrorResponse 在 Forward 返回错误但尚未写响应时补写统一错误响应。
 func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
+	return h.ensureForwardErrorResponseFor(c, streamStarted, nil)
+}
+
+// ensureForwardErrorResponseFor writes the same fallback as ensureForwardErrorResponse.
+// A user object-storage error uses object_storage_error and a fixed message.
+func (h *OpenAIGatewayHandler) ensureForwardErrorResponseFor(c *gin.Context, streamStarted bool, cause error) bool {
 	if c == nil || c.Writer == nil {
 		return false
 	}
@@ -3804,7 +3810,11 @@ func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, stream
 	if c.Writer.Written() && !imageKeepalivePaddingOnly {
 		streamStarted = true
 	}
-	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
+	errType, message := "upstream_error", "Upstream request failed"
+	if service.IsUserOSSStorageError(cause) {
+		errType, message = "object_storage_error", service.UserOSSClientMessage
+	}
+	h.handleStreamingAwareError(c, http.StatusBadGateway, errType, message, streamStarted)
 	return true
 }
 

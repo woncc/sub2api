@@ -251,14 +251,13 @@ func TestUserOSSRewriteImageAndVideo(t *testing.T) {
 	require.NoError(t, err)
 	spec := UserOSSRequest{UserID: 4, RepoID: view.ID, Prefix: "file/images/"}
 	png := []byte("\x89PNG\r\n\x1a\nfake")
-	body, _ := json.Marshal(map[string]any{"data": []map[string]string{{"b64_json": "iVBORw0KGgo="}}})
-	// The payload above is not valid png base64 of our bytes; use the real encoder via a known image item url instead.
+	// Use a fetched image URL rather than a b64 payload that does not decode to these bytes.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(png)
 	}))
 	defer server.Close()
-	body, _ = json.Marshal(map[string]any{"data": []map[string]string{{"url": server.URL + "/a.png"}}})
+	body, _ := json.Marshal(map[string]any{"data": []map[string]string{{"url": server.URL + "/a.png"}}})
 	rewritten, err := svc.RewriteImageBody(context.Background(), spec, "task 1", body)
 	require.NoError(t, err)
 	require.Contains(t, string(rewritten), "https://cdn.example/file/images/task-1-0.png")

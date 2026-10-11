@@ -68,6 +68,8 @@ func (UserOSSRepository) Fields() []ent.Field {
 
 func (UserOSSRepository) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("user_id"),
+		// Matches migration 241: partial index so soft-deleted rows stay out of the lookup index.
+		index.Fields("user_id").
+			Annotations(entsql.IndexWhere("deleted_at IS NULL")),
 	}
 }

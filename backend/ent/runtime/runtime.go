@@ -43,6 +43,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userallowedgroup"
 	"github.com/Wei-Shaw/sub2api/ent/userattributedefinition"
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
+	"github.com/Wei-Shaw/sub2api/ent/userossrepository"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -2405,6 +2406,105 @@ func init() {
 	userattributevalueDescValue := userattributevalueFields[2].Descriptor()
 	// userattributevalue.DefaultValue holds the default value on creation for the value field.
 	userattributevalue.DefaultValue = userattributevalueDescValue.Default.(string)
+	userossrepositoryMixin := schema.UserOSSRepository{}.Mixin()
+	userossrepositoryMixinHooks1 := userossrepositoryMixin[1].Hooks()
+	userossrepository.Hooks[0] = userossrepositoryMixinHooks1[0]
+	userossrepositoryMixinInters1 := userossrepositoryMixin[1].Interceptors()
+	userossrepository.Interceptors[0] = userossrepositoryMixinInters1[0]
+	userossrepositoryMixinFields0 := userossrepositoryMixin[0].Fields()
+	_ = userossrepositoryMixinFields0
+	userossrepositoryFields := schema.UserOSSRepository{}.Fields()
+	_ = userossrepositoryFields
+	// userossrepositoryDescCreatedAt is the schema descriptor for created_at field.
+	userossrepositoryDescCreatedAt := userossrepositoryMixinFields0[0].Descriptor()
+	// userossrepository.DefaultCreatedAt holds the default value on creation for the created_at field.
+	userossrepository.DefaultCreatedAt = userossrepositoryDescCreatedAt.Default.(func() time.Time)
+	// userossrepositoryDescUpdatedAt is the schema descriptor for updated_at field.
+	userossrepositoryDescUpdatedAt := userossrepositoryMixinFields0[1].Descriptor()
+	// userossrepository.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	userossrepository.DefaultUpdatedAt = userossrepositoryDescUpdatedAt.Default.(func() time.Time)
+	// userossrepository.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	userossrepository.UpdateDefaultUpdatedAt = userossrepositoryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// userossrepositoryDescProvider is the schema descriptor for provider field.
+	userossrepositoryDescProvider := userossrepositoryFields[1].Descriptor()
+	// userossrepository.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	userossrepository.ProviderValidator = func() func(string) error {
+		validators := userossrepositoryDescProvider.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(provider string) error {
+			for _, fn := range fns {
+				if err := fn(provider); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// userossrepositoryDescBucket is the schema descriptor for bucket field.
+	userossrepositoryDescBucket := userossrepositoryFields[2].Descriptor()
+	// userossrepository.BucketValidator is a validator for the "bucket" field. It is called by the builders before save.
+	userossrepository.BucketValidator = func() func(string) error {
+		validators := userossrepositoryDescBucket.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(bucket string) error {
+			for _, fn := range fns {
+				if err := fn(bucket); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// userossrepositoryDescDomain is the schema descriptor for domain field.
+	userossrepositoryDescDomain := userossrepositoryFields[3].Descriptor()
+	// userossrepository.DefaultDomain holds the default value on creation for the domain field.
+	userossrepository.DefaultDomain = userossrepositoryDescDomain.Default.(string)
+	// userossrepository.DomainValidator is a validator for the "domain" field. It is called by the builders before save.
+	userossrepository.DomainValidator = userossrepositoryDescDomain.Validators[0].(func(string) error)
+	// userossrepositoryDescRegion is the schema descriptor for region field.
+	userossrepositoryDescRegion := userossrepositoryFields[4].Descriptor()
+	// userossrepository.DefaultRegion holds the default value on creation for the region field.
+	userossrepository.DefaultRegion = userossrepositoryDescRegion.Default.(string)
+	// userossrepository.RegionValidator is a validator for the "region" field. It is called by the builders before save.
+	userossrepository.RegionValidator = userossrepositoryDescRegion.Validators[0].(func(string) error)
+	// userossrepositoryDescEndpoint is the schema descriptor for endpoint field.
+	userossrepositoryDescEndpoint := userossrepositoryFields[5].Descriptor()
+	// userossrepository.DefaultEndpoint holds the default value on creation for the endpoint field.
+	userossrepository.DefaultEndpoint = userossrepositoryDescEndpoint.Default.(string)
+	// userossrepository.EndpointValidator is a validator for the "endpoint" field. It is called by the builders before save.
+	userossrepository.EndpointValidator = userossrepositoryDescEndpoint.Validators[0].(func(string) error)
+	// userossrepositoryDescAccessKeyID is the schema descriptor for access_key_id field.
+	userossrepositoryDescAccessKeyID := userossrepositoryFields[6].Descriptor()
+	// userossrepository.DefaultAccessKeyID holds the default value on creation for the access_key_id field.
+	userossrepository.DefaultAccessKeyID = userossrepositoryDescAccessKeyID.Default.(string)
+	// userossrepository.AccessKeyIDValidator is a validator for the "access_key_id" field. It is called by the builders before save.
+	userossrepository.AccessKeyIDValidator = userossrepositoryDescAccessKeyID.Validators[0].(func(string) error)
+	// userossrepositoryDescSecretEncrypted is the schema descriptor for secret_encrypted field.
+	userossrepositoryDescSecretEncrypted := userossrepositoryFields[7].Descriptor()
+	// userossrepository.DefaultSecretEncrypted holds the default value on creation for the secret_encrypted field.
+	userossrepository.DefaultSecretEncrypted = userossrepositoryDescSecretEncrypted.Default.(string)
+	// userossrepositoryDescAccountID is the schema descriptor for account_id field.
+	userossrepositoryDescAccountID := userossrepositoryFields[8].Descriptor()
+	// userossrepository.DefaultAccountID holds the default value on creation for the account_id field.
+	userossrepository.DefaultAccountID = userossrepositoryDescAccountID.Default.(string)
+	// userossrepository.AccountIDValidator is a validator for the "account_id" field. It is called by the builders before save.
+	userossrepository.AccountIDValidator = userossrepositoryDescAccountID.Validators[0].(func(string) error)
+	// userossrepositoryDescForcePathStyle is the schema descriptor for force_path_style field.
+	userossrepositoryDescForcePathStyle := userossrepositoryFields[9].Descriptor()
+	// userossrepository.DefaultForcePathStyle holds the default value on creation for the force_path_style field.
+	userossrepository.DefaultForcePathStyle = userossrepositoryDescForcePathStyle.Default.(bool)
+	// userossrepositoryDescBucketURL is the schema descriptor for bucket_url field.
+	userossrepositoryDescBucketURL := userossrepositoryFields[10].Descriptor()
+	// userossrepository.DefaultBucketURL holds the default value on creation for the bucket_url field.
+	userossrepository.DefaultBucketURL = userossrepositoryDescBucketURL.Default.(string)
+	// userossrepository.BucketURLValidator is a validator for the "bucket_url" field. It is called by the builders before save.
+	userossrepository.BucketURLValidator = userossrepositoryDescBucketURL.Validators[0].(func(string) error)
 	userplatformquotaMixin := schema.UserPlatformQuota{}.Mixin()
 	userplatformquotaMixinHooks1 := userplatformquotaMixin[1].Hooks()
 	userplatformquota.Hooks[0] = userplatformquotaMixinHooks1[0]

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,7 +60,7 @@ func validateUserOSSEndpoint(endpoint string) error {
 	if path := strings.Trim(parsed.EscapedPath(), "/"); path != "" {
 		return errors.New("endpoint must not include a path")
 	}
-	if isUserOSSMetadataHost(parsed.Hostname()) {
+	if isUserOSSMetadataHost(parsed.Hostname()) || userOSSLegacyIPv4Literal(parsed.Hostname()) {
 		return errors.New("endpoint must be an https URL with a public host")
 	}
 	return nil
@@ -73,7 +74,7 @@ func validateUserOSSFetchURL(raw string) error {
 	if !strings.EqualFold(parsed.Scheme, "https") {
 		return errors.New("artifact url must be https")
 	}
-	if urlvalidatorBlockedHost(parsed.Hostname()) {
+	if urlvalidatorBlockedHost(parsed.Hostname()) || userOSSLegacyIPv4Literal(parsed.Hostname()) {
 		return errors.New("artifact url host is not allowed")
 	}
 	return nil
@@ -90,7 +91,7 @@ func artifactURLAllowed(publicBase, target string) error {
 	if parsed.Scheme != "https" && parsed.Scheme != "http" {
 		return errors.New("object storage returned an invalid url")
 	}
-	if urlvalidatorBlockedHost(parsed.Hostname()) {
+	if urlvalidatorBlockedHost(parsed.Hostname()) || userOSSLegacyIPv4Literal(parsed.Hostname()) {
 		return errors.New("object storage returned a url on a blocked host")
 	}
 	publicBase = strings.TrimSpace(publicBase)
@@ -135,9 +136,16 @@ func dialUserOSSPublic(ctx context.Context, network, addr string) (net.Conn, err
 	if urlvalidatorBlockedHost(host) {
 		return nil, errors.New("host is not allowed")
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
+	// IP literals never reach DNS. Go's resolver only accepts the forms
+	// net.ParseIP understands; glibc inet_aton / getaddrinfo also accept
+	// decimal, hex, octal, and fewer than four dotted parts. Fold those
+	// first so a cgo resolver cannot turn them into a private address.
+	ips := userOSSLiteralAddrs(host)
+	if ips == nil {
+		ips, err = net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(ips) == 0 {
 		return nil, errors.New("host did not resolve")
@@ -160,6 +168,123 @@ func dialUserOSSPublic(ctx context.Context, network, addr string) (net.Conn, err
 		dialErr = errors.New("dial failed")
 	}
 	return nil, dialErr
+}
+
+// userOSSLiteralAddrs returns the address when host is an IP literal, including
+// glibc inet_aton forms that net.ParseIP rejects. A nil result means the host
+// is a name and must be resolved.
+func userOSSLiteralAddrs(host string) []net.IPAddr {
+	if ip := net.ParseIP(host); ip != nil {
+		return []net.IPAddr{{IP: ip}}
+	}
+	if ip, ok := parseLegacyIPv4(host); ok {
+		return []net.IPAddr{{IP: ip}}
+	}
+	return nil
+}
+
+// userOSSLegacyIPv4Literal reports hosts that glibc accepts as IPv4 but that
+// are not the canonical dotted form Go's net.ParseIP accepts. Canonical
+// literals stay on the existing IsBlockedHost / rejectUserOSSIP path.
+func userOSSLegacyIPv4Literal(host string) bool {
+	host = strings.TrimSpace(host)
+	ip, ok := parseLegacyIPv4(host)
+	if !ok {
+		return false
+	}
+	parsed := net.ParseIP(host)
+	return parsed == nil || parsed.String() != ip.String()
+}
+
+// parseLegacyIPv4 implements glibc inet_aton: one to four dot-separated parts,
+// each decimal, 0-prefixed octal, or 0x/0X hex. The last part fills the
+// remaining bytes (one part is 32 bits, two is a.24, three is a.b.16). A
+// trailing dot, empty part, overflow, or any other character fails. Names
+// that contain letters outside a hex part, such as s3.amazonaws.com, fail.
+func parseLegacyIPv4(host string) (net.IP, bool) {
+	if host == "" || strings.HasSuffix(host, ".") || strings.Contains(host, "..") {
+		return nil, false
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) < 1 || len(parts) > 4 {
+		return nil, false
+	}
+	values := make([]uint64, len(parts))
+	for i, part := range parts {
+		v, ok := parseInetAtonPart(part)
+		if !ok {
+			return nil, false
+		}
+		values[i] = v
+	}
+	var maxLast uint64
+	switch len(parts) {
+	case 1:
+		maxLast = 0xffffffff
+	case 2:
+		maxLast = 0xffffff
+	case 3:
+		maxLast = 0xffff
+	default:
+		maxLast = 0xff
+	}
+	for i, v := range values {
+		limit := uint64(0xff)
+		if i == len(values)-1 {
+			limit = maxLast
+		}
+		if v > limit {
+			return nil, false
+		}
+	}
+	var addr uint32
+	switch len(values) {
+	case 1:
+		addr = uint32(values[0])
+	case 2:
+		addr = uint32(values[0])<<24 | uint32(values[1])
+	case 3:
+		addr = uint32(values[0])<<24 | uint32(values[1])<<16 | uint32(values[2])
+	default:
+		addr = uint32(values[0])<<24 | uint32(values[1])<<16 | uint32(values[2])<<8 | uint32(values[3])
+	}
+	return net.IPv4(byte(addr>>24), byte(addr>>16), byte(addr>>8), byte(addr)), true
+}
+
+func parseInetAtonPart(part string) (uint64, bool) {
+	if part == "" {
+		return 0, false
+	}
+	base := 10
+	digits := part
+	if len(part) > 1 && part[0] == '0' {
+		if part[1] == 'x' || part[1] == 'X' {
+			base = 16
+			digits = part[2:]
+			if digits == "" {
+				return 0, false
+			}
+		} else {
+			base = 8
+			digits = part[1:]
+		}
+	}
+	for _, r := range digits {
+		switch {
+		case r >= '0' && r <= '9':
+			if base == 8 && r > '7' {
+				return 0, false
+			}
+		case base == 16 && ((r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')):
+		default:
+			return 0, false
+		}
+	}
+	v, err := strconv.ParseUint(digits, base, 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
 }
 
 type userOSSRoundTripper struct {

@@ -470,6 +470,19 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				)
 				continue
 			}
+			if service.IsUserOSSStorageError(err) {
+				// Upstream already succeeded. Report success so object storage is not
+				// scored as an account failure, and do not switch accounts.
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, grokMediaScheduleModel(account, routingModel, nil), true, nil)
+				if !service.IsResponseCommitted(c) && c.Writer.Size() == writerSizeBeforeForward {
+					h.errorResponse(c, http.StatusBadGateway, "object_storage_error", service.UserOSSClientMessage)
+				}
+				reqLog.Warn("grok_media.user_oss_storage_failed",
+					zap.Int64("account_id", account.ID),
+					zap.String("op", userOSSStorageOp(err)),
+				)
+				return
+			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, grokMediaScheduleModel(account, routingModel, nil), false, nil)
 			if !service.IsResponseCommitted(c) && c.Writer.Size() == writerSizeBeforeForward {
 				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
