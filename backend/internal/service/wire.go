@@ -874,6 +874,7 @@ var ProviderSet = wire.NewSet(
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	NewUserOSSService,
+	wire.Bind(new(EncryptionKeyGate), new(*BackupService)),
 	ProvideBatchImageModelPricingResolver,
 	NewBatchImagePublicService,
 	NewBatchImageDownloadService,
