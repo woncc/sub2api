@@ -518,6 +518,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				// Wall-clock start for usage duration_ms: create accepted → first done discovery.
 				CreatedAt: videoCreateStartedAt,
 			}
+			// Seedance and Grok video creates both carry the OSS binding in this one
+			// full record. A second OSS-only write would drop Model and skip
+			// completion billing (REV-001).
 			if spec, ok := service.UserOSSRequestFromContext(c.Request.Context()); ok && !spec.Defer {
 				pending.OSSRepositoryID = spec.RepoID
 				pending.OSSPath = spec.Prefix
@@ -541,21 +544,6 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		// Status poll OR content download can observe official done+video.url.
 		// Both paths share the same claim key so the customer is charged once.
-		if endpoint == service.SeedanceEndpointCreate && strings.TrimSpace(result.ResponseID) != "" {
-			if spec, ok := service.UserOSSRequestFromContext(c.Request.Context()); ok && spec.RepoID > 0 {
-				ossPending := service.GrokVideoPendingBilling{
-					OSSRepositoryID: spec.RepoID,
-					OSSPath:         spec.Prefix,
-					CreatedAt:       service.GrokVideoPendingCreatedAtNow(),
-				}
-				if err := h.gatewayService.StoreGrokVideoPendingBilling(requestCtx, result.ResponseID, subject.UserID, apiKey.ID, ossPending); err != nil {
-					reqLog.Error("grok_media.store_seedance_oss_binding_failed",
-						zap.String("request_id", result.ResponseID),
-						zap.Error(err),
-					)
-				}
-			}
-		}
 		if endpoint == service.SeedanceEndpointStatus {
 			if billResult := prepareSeedanceCompletionBilling(requestCtx, h, apiKey, subject, requestID, result); billResult != nil {
 				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, requestID)
